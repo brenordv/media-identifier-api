@@ -25,6 +25,7 @@ The happy path for identifying the media is:
 - Lastly, we cache this info, so we don't have to do the work twice.
 - And return the data to the user.
 
+We also log all requests coming in, the results, and if we use OpenAI, we log the tokens used.
 
 ## Endpoints
 
@@ -35,7 +36,6 @@ The application is built with FastAPI and exposes the GuessIt library's function
 - `/api/statistics` - Returns statistics about requests made to the API
 
 ## Installation and Usage
-
 ### Environment variables
 To use this, you must set a handful of environment variables:
 ```dotenv
@@ -94,7 +94,6 @@ python main.py
 ```
 
 ### Using Docker
-
 #### Building the Docker Image
 
 ```bash
@@ -118,7 +117,6 @@ docker run -d --name guessit-api -p 10147:10147 --restart unless-stopped guessit
 The API will be available at http://localhost:10147
 
 ## API Usage Examples
-
 ### Analyzing a Movie Filename
 
 ```
