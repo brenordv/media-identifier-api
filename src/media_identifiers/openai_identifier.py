@@ -19,11 +19,12 @@ _open_ai_client = OpenAI(
 )
 
 
-def identify_media_with_open_ai(file_path: str) -> Optional[dict]:
-    media_type = _identify_media_type_with_open_ai(file_path)
-    if not media_type:
-        _logger.warning(f"Could not identify media type for file: {file_path}")
-        return None
+def identify_media_with_open_ai(file_path: str, media_type: str) -> Optional[dict]:
+    if media_type is None:
+        media_type = _identify_media_type_with_open_ai(file_path)
+        if not media_type:
+            _logger.warning(f"Could not identify media type for file: {file_path}")
+            return None
 
     if media_type == 'movie':
         title = _identify_movie_title_with_open_ai(file_path)

@@ -165,8 +165,9 @@ class MediaInfoBuilder:
         return self
 
     def with_media_type(self, media_type: str):
-        if not media_type:
+        if media_type is None:
             self._media_type = "unknown"
+            return self
 
         media_types = {
             **dict.fromkeys(["tv-show", "tvshow", "tv show", "tv shows", "tv", "episode", "series", "scripted"], "tv"),

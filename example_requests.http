@@ -1,19 +1,34 @@
+### Shin Godzilla Movie
 GET http://localhost:8000/api/guess?it=Shin Godzilla (2016) 1080p Hybrid Bluray REMUX AVC Dual DTS-HD MA 3.1
-###
+
+### The Blob movie
 GET http://localhost:8000/api/guess?it=The Blob (1988) (1080p BluRay x265 10bit Tigole).mkv
-###
-GET http://localhost:8000/api/guess?it=Rick.and.Morty.S07E10.Fear.No.Mort.1080p.HMAX.WEB-DL.DDP5.1.H.264-FLUX-poster.jpg
-###
+### The Blob movie alt
 GET http://localhost:8000/api/guess?it=The Blob (1988) (1080p BluRay x265 10bit Tigole)/movie.mkv
-###
+
+### Rick and Morty S07E10
+GET http://localhost:8000/api/guess?it=Rick.and.Morty.S07E10.Fear.No.Mort.1080p.HMAX.WEB-DL.DDP5.1.H.264-FLUX-poster.jpg
+### Rick and Morty S07E10 alt
 GET http://localhost:8000/api/guess?it=Rick.and.Morty.S07E10.Fear.No.Mort.1080p.HMAX.WEB-DL.DDP5.1.H.264-FLUX/poster.jpg
-###
+### Rick and Morty S07E10 alt 2
 GET http://localhost:8000/api/guess?it=rick.and.morty.s07e10.fear.no.mort.1080p.hmax.web-dl.ddp5.1.h.264-flux/poster.jpg
-### Guess IT fails, so fallback to OpenAI.
+
+### Death Proof (Guess IT fails, so fallback to OpenAI.)
 GET http://localhost:8000/api/guess?it=tmp/Death.Proof.2007.1080p.BluRay.x264-1920/1920-proof.rar
-###
-GET http://localhost:8000/api/health
-###
-GET http://localhost:8000/api/statistics
-###
+
+### Fargo Movie
+GET http://localhost:8000/api/guess?it=Fargo.1080p.BluRay.x264-1920/1920-proof.rmkv
+### Fargo Movie alt
+GET http://localhost:8000/api/guess?it=Fargo.1996.1080p.BluRay.x264-1920/1920-fargo.rmkv
+### Fargo TV Series
+GET http://localhost:8000/api/guess?it=Fargo.S01E01.1080p.BluRay.x264-1920/1920-fargo.rmkv
+
+### Killing Zoe
 GET http://localhost:8000/api/guess?it=tmp/Killing.Zoe.1993.1080p.BluRay.x264-LCHD/lchd-kz1080p.rar
+
+### Health Check
+GET http://localhost:8000/api/health
+
+### Statistics
+GET http://localhost:8000/api/statistics
+

@@ -2,18 +2,14 @@ import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
+from src.repositories.base_repository import BaseRepository
 from src.utils import get_request_id
 
 
-class OpenAILogger:
+class OpenAILogger(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool):
-        self._conn_pool = conn_pool
-        self._logger = log_factory("OpenAILogger", unique_handler_types=True)
+        super().__init__(conn_pool, log_factory("OpenAILogger", unique_handler_types=True))
         self._ensure_table_exists()
-
-
-    def _get_connection(self):
-        return self._conn_pool.getconn()
 
     def _ensure_table_exists(self):
         try:

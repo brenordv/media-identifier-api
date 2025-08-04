@@ -10,26 +10,16 @@ from src.models.media_info import MediaInfoBuilder
 _tmdb_api_key = None
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
 
-
-def identify_media_with_tmdb_multi_search(query: str) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb(query: str, media_type: str) -> Optional[Dict[str, Any]]:
     if query is None or not query.strip():
         raise ValueError("Query string must not be empty or None.")
 
-    params = {
-        'query': query,
-        'include_adult': True,
-        'page': 1
-    }
+    if media_type == "movie":
+        return _identify_media_with_tmdb_movie_search(query)
+    elif media_type == "tv":
+        return _identify_media_with_tmdb_series_search(query)
 
-    response_data = _make_request('https://api.themoviedb.org/3/search/multi', params)
-
-    if not response_data or 'results' not in response_data or not response_data['results']:
-        _logger.warning(f"No results found for query: {query}")
-        return None
-
-    tmdb_multi_data = response_data['results'][0]
-
-    return _get_record_builder_for_tmdb_data(tmdb_multi_data).build()
+    return _identify_media_with_tmdb_multi_search(query)
 
 
 def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
@@ -108,6 +98,41 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str) -> Optional[Dict[st
         .with_instagram_id(external_ids.get('instagram_id')) \
         .with_twitter_id(external_ids.get('twitter_id')) \
         .build()
+
+
+def _identify_media_with_tmdb_multi_search(query: str) -> Optional[Dict[str, Any]]:
+    return _identify_media_with_tmdb_by_type(query, 'multi').build()
+
+
+def _identify_media_with_tmdb_movie_search(query: str) -> Optional[Dict[str, Any]]:
+    result = _identify_media_with_tmdb_by_type(query, 'movie')
+    if result is None:
+        return None
+    return result.with_media_type('movie').build()
+
+def _identify_media_with_tmdb_series_search(query: str) -> Optional[Dict[str, Any]]:
+    result = _identify_media_with_tmdb_by_type(query, 'tv')
+    if result is None:
+        return None
+    return result.with_media_type('tv').build()
+
+
+def _identify_media_with_tmdb_by_type(query: str, media_type: str) -> MediaInfoBuilder:
+    params = {
+        'query': query,
+        'include_adult': True,
+        'page': 1
+    }
+
+    response_data = _make_request(f'https://api.themoviedb.org/3/search/{media_type}', params)
+
+    if not response_data or 'results' not in response_data or not response_data['results']:
+        _logger.warning(f"No results found for query: {query}")
+        return None
+
+    tmdb_multi_data = response_data['results'][0]
+
+    return _get_record_builder_for_tmdb_data(tmdb_multi_data)
 
 def _get_tmdb_api_key():
     global _tmdb_api_key
@@ -215,7 +240,7 @@ def _get_record_builder_for_tmdb_data(tmdb_data: Dict[str, Any]) -> MediaInfoBui
         .with_tmdb_id(tmdb_data.get('id')) \
         .with_overview(tmdb_data.get('overview')) \
         .with_year(_extract_year_from_tmdb_multi_data(tmdb_data)) \
-        .with_media_type(tmdb_data.get('media_type', 'movie')) \
+        .with_media_type(tmdb_data.get('media_type')) \
         .with_original_language(tmdb_data.get('original_language')) \
         .with_genres(tmdb_data.get('genre_ids', tmdb_data.get('genres'))) \
         .with_used_tmdb(True)

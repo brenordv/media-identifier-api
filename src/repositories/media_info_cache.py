@@ -2,11 +2,12 @@ import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
+from src.repositories.base_repository import BaseRepository
 
-class MediaInfoCache:
+
+class MediaInfoCache(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool):
-        self._conn_pool = conn_pool
-        self._logger = log_factory("Cache", unique_handler_types=True)
+        super().__init__(conn_pool, log_factory("Cache", unique_handler_types=True))
         self._ensure_table_exists()
         self._required_columns = [
             'searchable_reference',
@@ -15,9 +16,6 @@ class MediaInfoCache:
             'original_title',
             'media_type',
             'year']
-
-    def _get_connection(self):
-        return self._conn_pool.getconn()
 
     def _ensure_table_exists(self):
         try:
@@ -64,8 +62,8 @@ class MediaInfoCache:
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
-
-    def _prepare_values_for_cache(self, new_record: dict, target_keys: list):
+    @staticmethod
+    def _prepare_values_for_cache(new_record: dict, target_keys: list):
         values = []
         for key, value in new_record.items():
             if key not in target_keys:
@@ -79,13 +77,18 @@ class MediaInfoCache:
 
         return values
 
-    def get_cached(self, search_term: str, search_prop_name: str = "searchable_reference"):
+    def get_cached(self, search_term: str, media_type: str, search_prop_name: str = "searchable_reference"):
         try:
             self._logger.debug(f"Getting cached data for {search_prop_name}: {search_term}")
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
-                    query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s;"
-                    cursor.execute(query, (search_term,))
+                    if media_type is None:
+                        query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s;"
+                        cursor.execute(query, (search_term,))
+                    else:
+                        query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s AND media_type = %s;"
+                        cursor.execute(query, (search_term, media_type,))
+
                     result = cursor.fetchone()
                     if result:
                         return dict(zip([desc[0] for desc in cursor.description], result))

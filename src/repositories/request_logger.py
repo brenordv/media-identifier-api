@@ -2,16 +2,13 @@ import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
+from src.repositories.base_repository import BaseRepository
 
-class RequestLogger:
+
+class RequestLogger(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool):
-        self._conn_pool = conn_pool
-        self._logger = log_factory("RequestLogger", unique_handler_types=True)
+        super().__init__(conn_pool, log_factory("RequestLogger", unique_handler_types=True))
         self._ensure_table_exists()
-
-
-    def _get_connection(self):
-        return self._conn_pool.getconn()
 
     def _ensure_table_exists(self):
         try:
