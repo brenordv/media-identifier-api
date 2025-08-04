@@ -53,6 +53,7 @@ OPENAI_ORGANIZATION=your-organization-key
 
 #### Prerequisites
 - Python 3.11 or higher
+- A PostgresSQL database
 
 #### Using Virtual Environment (recommended)
 
