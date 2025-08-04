@@ -41,10 +41,13 @@ WORKDIR /app
 COPY --from=builder /app/wheels /wheels
 
 # Install dependencies and curl for health checks
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir /wheels/* \
     && rm -rf /wheels
+
 
 # Copy application code
 COPY . .
