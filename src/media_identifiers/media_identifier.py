@@ -48,6 +48,13 @@ class MediaIdentifier:
                     return None
 
                 title = openai_data.get('title')
+
+                cached_data = self._cache.get_cached(search_term=title, search_prop_name="title")
+
+                if cached_data:
+                    self._logger.debug(f"After identifying file with OpenAI, we found cached data for title: {title}")
+                    return cached_data
+
                 tmdb_media = identify_media_with_tmdb_multi_search(title)
 
                 if tmdb_media is None:
@@ -62,6 +69,14 @@ class MediaIdentifier:
 
             else:
                 media_data = merge_media_info(media_data, tmdb_media)
+
+                title = media_data.get('title')
+
+                cached_data = self._cache.get_cached(search_term=title, search_prop_name="title")
+
+                if cached_data:
+                    self._logger.debug(f"After identifying file with TMDB, we found cached data for title: {title}")
+                    return cached_data
 
             media_type = media_data.get('media_type')
 
