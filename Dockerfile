@@ -28,7 +28,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=10147 \
-    WORKERS=4 \
+    WORKERS=1 \
     HOST=0.0.0.0
 
 # Create a non-root user
