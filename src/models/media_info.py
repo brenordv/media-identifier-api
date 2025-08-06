@@ -8,7 +8,7 @@ class MediaInfoBuilder:
         self._id: Union[uuid4, None] = None
         self._searchable_reference: Union[str, None] = None
         self._tmdb_id: Union[int, None] = None
-        self._tmdb_episode_id: Union[int, None] = None
+        self._tmdb_series_id: Union[int, None] = None
         self._imdb_id: Union[str, None] = None
         self._tvdb_id: Union[int, None] = None
         self._tvrage_id: Union[int, None] = None
@@ -49,8 +49,8 @@ class MediaInfoBuilder:
         self._tmdb_id = tmdb_id
         return self
 
-    def with_tmdb_episode_id(self, tmdb_episode_id: int):
-        self._tmdb_episode_id = tmdb_episode_id
+    def with_tmdb_series_id(self, tmdb_series_id: int):
+        self._tmdb_series_id = tmdb_series_id
         return self
 
     def with_imdb_id(self, imdb_id: str):
@@ -212,7 +212,7 @@ class MediaInfoBuilder:
             'searchable_reference': self._searchable_reference,
             'tmdb_id': self._tmdb_id,
             'imdb_id': self._imdb_id,
-            'tmdb_episode_id': self._tmdb_episode_id,
+            'tmdb_series_id': self._tmdb_series_id,
             'tvdb_id': self._tvdb_id,
             'tvrage_id': self._tvrage_id,
             'wikidata_id': self._wikidata_id,
@@ -259,3 +259,6 @@ def merge_media_info(existing: dict, new: dict) -> Optional[dict]:
 
         merged[key] = value
     return merged
+
+def is_media_type_valid(media_type: str) -> bool:
+    return media_type in ['movie', 'tv']

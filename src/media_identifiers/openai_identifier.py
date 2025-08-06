@@ -1,6 +1,6 @@
 import inspect
 import os
-from typing import Optional
+from typing import Optional, Union
 from openai import OpenAI, RateLimitError
 from simple_log_factory.log_factory import log_factory
 
@@ -19,19 +19,22 @@ _open_ai_client = OpenAI(
 )
 
 
-def identify_media_with_open_ai(file_path: str, media_type: str) -> Optional[dict]:
+def identify_media_with_open_ai(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
     if media_type is None:
         media_type = _identify_media_type_with_open_ai(file_path)
         if not media_type:
             _logger.warning(f"Could not identify media type for file: {file_path}")
             return None
+        if media_type not in ['movie', 'tv']:
+            _logger.warning(f"Unknown media type: {media_type} for file: {file_path}")
+            return None
 
     if media_type == 'movie':
-        title = _identify_movie_title_with_open_ai(file_path)
+        title = identify_movie_title_with_open_ai(file_path)
         season, episode = None, None
     else:
-        title = _identify_series_title_with_open_ai(file_path)
-        season, episode = _parse_season_episode(_identify_series_season_episode_with_open_ai(file_path))
+        title = identify_series_title_with_open_ai(file_path)
+        season, episode = _parse_season_episode(identify_series_season_episode_with_open_ai(file_path))
 
     return MediaInfoBuilder() \
         .with_title(title) \
@@ -72,15 +75,15 @@ def _identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_media_type_from_filename)
 
 
-def _identify_movie_title_with_open_ai(file_path: str) -> Optional[str]:
+def identify_movie_title_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_movie_title_ai_function)
 
 
-def _identify_series_title_with_open_ai(file_path: str) -> Optional[str]:
+def identify_series_title_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_series_title_ai_function)
 
 
-def _identify_series_season_episode_with_open_ai(file_path: str) -> Optional[str]:
+def identify_series_season_episode_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_season_episode_from_filename)
 
 

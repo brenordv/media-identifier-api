@@ -1,7 +1,7 @@
 import os
 import random
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 import requests
 from simple_log_factory.log_factory import log_factory
 
@@ -10,14 +10,15 @@ from src.models.media_info import MediaInfoBuilder
 _tmdb_api_key = None
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
 
+
 def identify_media_with_tmdb(query: str, media_type: str) -> Optional[Dict[str, Any]]:
     if query is None or not query.strip():
         raise ValueError("Query string must not be empty or None.")
 
     if media_type == "movie":
-        return _identify_media_with_tmdb_movie_search(query)
+        return identify_media_with_tmdb_movie_search(query)
     elif media_type == "tv":
-        return _identify_media_with_tmdb_series_search(query)
+        return identify_media_with_tmdb_series_search(query)
 
     return _identify_media_with_tmdb_multi_search(query)
 
@@ -36,6 +37,7 @@ def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
         .with_media_type('movie') \
         .build()
 
+
 def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -48,6 +50,7 @@ def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
 
     return _get_record_builder_for_tmdb_data(series_details) \
         .with_media_type('tv') \
+        .with_tmdb_series_id(tmdb_id) \
         .build()
 
 
@@ -69,20 +72,33 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
         .with_episode(episode_details.get('episode_number', episode)) \
         .with_season(episode_details.get('season_number', season)) \
         .with_media_type('tv') \
-        .with_tmdb_episode_id(episode_details.get('id')) \
+        .with_tmdb_id(episode_details.get('id')) \
+        .with_tmdb_series_id(tmdb_id) \
         .with_overview(episode_details.get('overview')) \
         .with_year(_extract_year_from_tmdb_multi_data(episode_details)) \
         .build()
 
 
-def request_tmdb_external_ids(tmdb_id: int, media_type: str) -> Optional[Dict[str, Any]]:
+def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Union[int, None] = None, episode_number: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
     if media_type not in ['movie', 'tv']:
         raise ValueError("Media type must be either 'movie' or 'tv'.")
 
-    external_ids = _make_request(f'https://api.themoviedb.org/3/{media_type}/{tmdb_id}/external_ids')
+    if media_type == 'tv':
+        if season_number is not None and episode_number is not None:
+            url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/external_ids'
+        else:
+            url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids'
+
+    elif media_type == 'movie':
+        url = f'https://api.themoviedb.org/3/movie/{tmdb_id}/external_ids'
+
+    else:
+        raise ValueError("Media type must be either 'movie' or 'tv'.")
+
+    external_ids = _make_request(url)
 
     if not external_ids:
         _logger.warning(f"No external IDs found for TMDB ID: {tmdb_id}")
@@ -101,23 +117,40 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str) -> Optional[Dict[st
 
 
 def _identify_media_with_tmdb_multi_search(query: str) -> Optional[Dict[str, Any]]:
-    return _identify_media_with_tmdb_by_type(query, 'multi').build()
+    multi_data = _identify_media_with_tmdb_by_type(query, 'multi').build()
+
+    media_type = multi_data.get('media_type')
+    if media_type == 'tv':
+        # When fetching info on a series, the id is actually the id for the series itself, not the episode.
+        # We'll get that later.
+        tmdb_id = multi_data.get('tmdb_id')
+        multi_data['tmdb_series_id'] = tmdb_id
+
+    return multi_data
 
 
-def _identify_media_with_tmdb_movie_search(query: str) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb_movie_search(query: str) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, 'movie')
     if result is None:
         return None
     return result.with_media_type('movie').build()
 
-def _identify_media_with_tmdb_series_search(query: str) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb_series_search(query: str) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, 'tv')
     if result is None:
         return None
-    return result.with_media_type('tv').build()
+
+    series_data = result.with_media_type('tv').build()
+
+    # When fetching info on a series, the id is actually the id for the series itself, not the episode.
+    # We'll get that later.
+    tmdb_id = series_data.get('tmdb_id')
+    series_data['tmdb_series_id'] = tmdb_id
+
+    return series_data
 
 
-def _identify_media_with_tmdb_by_type(query: str, media_type: str) -> MediaInfoBuilder:
+def _identify_media_with_tmdb_by_type(query: str, media_type: str) -> Union[MediaInfoBuilder, None]:
     params = {
         'query': query,
         'include_adult': True,

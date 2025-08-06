@@ -30,14 +30,14 @@ class MediaInfoCache(BaseRepository):
                                              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
                                              searchable_reference TEXT NULL,
                                              tmdb_id INTEGER NOT NULL UNIQUE,
-                                             tmdb_episode_id INTEGER NULL UNIQUE,
-                                             imdb_id TEXT NULL UNIQUE,
-                                             tvdb_id INTEGER NULL UNIQUE,
-                                             tvrage_id INTEGER NULL UNIQUE,
-                                             wikidata_id TEXT NULL UNIQUE,
-                                             facebook_id TEXT NULL UNIQUE,
-                                             instagram_id TEXT NULL UNIQUE,
-                                             twitter_id TEXT NULL UNIQUE,
+                                             tmdb_series_id INTEGER NULL,
+                                             imdb_id TEXT NULL,
+                                             tvdb_id INTEGER NULL,
+                                             tvrage_id INTEGER NULL,
+                                             wikidata_id TEXT NULL,
+                                             facebook_id TEXT NULL,
+                                             instagram_id TEXT NULL,
+                                             twitter_id TEXT NULL,
                                              genres TEXT[] NULL,
                                              title TEXT NOT NULL,
                                              original_title TEXT NOT NULL,
@@ -76,6 +76,50 @@ class MediaInfoCache(BaseRepository):
             values.append(value)
 
         return values
+
+    def get_cached_by_obj(self, obj):
+        try:
+            self._logger.debug(f"Getting cached data by object for [{obj}]")
+
+            if obj is None:
+                self._logger.debug("No object provided, returning None")
+                return None
+
+            media_type = obj.get('media_type')
+            title = obj.get('title')
+
+            if any(x is None for x in [media_type, title]):
+                self._logger.debug("Object does not contain all required fields, returning None")
+                return None
+
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if media_type == 'tv':
+                        episode_number = obj.get('episode')
+                        season_number = obj.get('season')
+
+                        if episode_number is None and season_number is None:
+                            self._logger.debug("Object does not contain season or episode number, returning None")
+                            return None
+
+                        query = f"SELECT * FROM cached_media WHERE title = %s and media_type = %s and season = %s and episode = %s;"
+                        cursor.execute(query, (title, media_type, season_number, episode_number))
+                    elif media_type == 'movie':
+                        query = f"SELECT * FROM cached_media WHERE title = %s and media_type = %s;"
+                        cursor.execute(query, (title, media_type))
+
+                    else:
+                        self._logger.debug("Object does not contain a valid media type, returning None")
+                        return None
+
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(zip([desc[0] for desc in cursor.description], result))
+                    return None
+        except psycopg2.Error as e:
+            error_message = f"Error getting cached data by object: {str(e)}"
+            self._logger.error(error_message)
+            raise RuntimeError(error_message) from e
 
     def get_cached(self, search_term: str, media_type: str, search_prop_name: str = "searchable_reference"):
         try:
