@@ -94,6 +94,8 @@ class MediaInfoCache(BaseRepository):
 
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
+                    base_query = "SELECT * FROM cached_media WHERE (title ILIKE %s or searchable_reference ILIKE %s) and media_type ILIKE %s"
+
                     if media_type == 'tv':
                         episode_number = obj.get('episode')
                         season_number = obj.get('season')
@@ -102,11 +104,11 @@ class MediaInfoCache(BaseRepository):
                             self._logger.debug("Object does not contain season or episode number, returning None")
                             return None
 
-                        query = f"SELECT * FROM cached_media WHERE title = %s and media_type = %s and season = %s and episode = %s;"
-                        cursor.execute(query, (title, media_type, season_number, episode_number))
+                        query = f"{base_query} and season = %s and episode = %s;"
+                        cursor.execute(query, (title, title, media_type, season_number, episode_number))
                     elif media_type == 'movie':
-                        query = f"SELECT * FROM cached_media WHERE title = %s and media_type = %s;"
-                        cursor.execute(query, (title, media_type))
+                        query = f"{base_query};"
+                        cursor.execute(query, (title, title, media_type))
 
                     else:
                         self._logger.debug("Object does not contain a valid media type, returning None")

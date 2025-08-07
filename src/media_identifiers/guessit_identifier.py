@@ -19,10 +19,11 @@ def identify_media_with_guess_it(file_path: str) -> Optional[dict]:
         return None
 
 def _create_record_from_guessit_data(guess_it_data):
-
+    title = guess_it_data.get('title')
     return MediaInfoBuilder()\
-        .with_title(guess_it_data.get('title')) \
-        .with_original_title(guess_it_data.get('title')) \
+        .with_searchable_reference(title) \
+        .with_title(title) \
+        .with_original_title(title) \
         .with_year(guess_it_data.get('year', None)) \
         .with_media_type(guess_it_data.get('type')) \
         .with_episode_title(guess_it_data.get('episode_title')) \
