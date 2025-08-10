@@ -64,8 +64,9 @@ def tmdb_identify_series_by_title_and_id(media_data: dict, **kwargs):
         return None, False
 
     title = media_data.get('title')
+    year = media_data.get('year')
+    search_result = identify_media_with_tmdb_series_search(title, year)
 
-    search_result = identify_media_with_tmdb_series_search(title)
     if search_result is None:
         _logger.debug(f"[{log_tag}] No search result found for title: [{title}]. Skipping task. Retry is allowed.")
         return media_data, False

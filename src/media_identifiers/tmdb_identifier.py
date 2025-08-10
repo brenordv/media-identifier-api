@@ -8,20 +8,8 @@ from simple_log_factory.log_factory import log_factory
 from src.models.media_info import MediaInfoBuilder
 from src.utils import is_valid_year
 
-_tmdb_api_key = None
+_tmdb_api_key: Union[str, None] = None
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
-
-
-def identify_media_with_tmdb(query: str, media_type: str) -> Optional[Dict[str, Any]]:
-    if query is None or not query.strip():
-        raise ValueError("Query string must not be empty or None.")
-
-    if media_type == "movie":
-        return identify_media_with_tmdb_movie_search(query)
-    elif media_type == "tv":
-        return identify_media_with_tmdb_series_search(query)
-
-    return _identify_media_with_tmdb_multi_search(query)
 
 
 def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
@@ -117,26 +105,14 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
         .build()
 
 
-def _identify_media_with_tmdb_multi_search(query: str) -> Optional[Dict[str, Any]]:
-    multi_data = _identify_media_with_tmdb_by_type(query, 'multi').build()
-
-    media_type = multi_data.get('media_type')
-    if media_type == 'tv':
-        # When fetching info on a series, the id is actually the id for the series itself, not the episode.
-        # We'll get that later.
-        tmdb_id = multi_data.get('tmdb_id')
-        multi_data['tmdb_series_id'] = tmdb_id
-
-    return multi_data
-
-
-def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None]) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, 'movie', year)
     if result is None:
         return None
     return result.with_media_type('movie').build()
 
-def identify_media_with_tmdb_series_search(query: str, year: Union[int, None]) -> Optional[Dict[str, Any]]:
+
+def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, 'tv', year)
     if result is None:
         return None
@@ -171,10 +147,11 @@ def _identify_media_with_tmdb_by_type(query: str, media_type: str, year: Union[i
 
     return _get_record_builder_for_tmdb_data(tmdb_multi_data)
 
+
 def _get_tmdb_api_key():
     global _tmdb_api_key
 
-    if _tmdb_api_key:
+    if _tmdb_api_key is not None and _tmdb_api_key != "" and _tmdb_api_key != " ":
         _logger.debug("Using cached TMDB API key.")
         return _tmdb_api_key
 
@@ -203,7 +180,7 @@ def _prepare_tmdb_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
         params (Dict[str, Any]): The parameters to prepare.
 
     Returns:
-        Dict[str, Any]: The prepared parameters with default language set.
+        Dict[str, Any]: The prepared parameters with a default language set.
     """
     if params is None:
         params = {}
