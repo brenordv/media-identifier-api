@@ -19,9 +19,9 @@ _open_ai_client = OpenAI(
 )
 
 
-def identify_media_with_open_ai(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
+def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
     if media_type is None:
-        media_type = _identify_media_type_with_open_ai(file_path)
+        media_type = identify_media_type_with_open_ai(file_path)
         if not media_type:
             _logger.warning(f"Could not identify media type for file: {file_path}")
             return None
@@ -71,7 +71,7 @@ def _parse_season_episode(data):
     return season, episode
 
 
-def _identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
+def identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_media_type_from_filename)
 
 

@@ -2,14 +2,11 @@ from typing import Optional
 
 from simple_log_factory.log_factory import log_factory
 
-from src.media_identifiers.guessit_identifier import identify_media_with_guess_it
+from src.media_identifiers.media_identification_tasks.guessit_tasks import identify_media_with_guess_it
+from src.media_identifiers.media_identification_tasks.openai_tasks import openai_run_basic_identification_by_filename
 from src.media_identifiers.media_identification_tasks.pipeline_builders import build_movie_identification_pipeline, \
     build_series_identification_pipeline
-from src.media_identifiers.openai_identifier import identify_media_with_open_ai
-from src.media_identifiers.tmdb_identifier import request_tmdb_movie_details, \
-    request_tmdb_series_details, request_tmdb_series_episode_details, request_tmdb_external_ids, \
-    identify_media_with_tmdb
-from src.models.media_info import merge_media_info, is_media_type_valid
+from src.models.media_info import is_media_type_valid
 from src.repositories.repository_factory import get_repository
 
 
@@ -24,12 +21,10 @@ class MediaIdentifier:
 
             # Basic guess using GuessIT
             media_data = identify_media_with_guess_it(file_path)
+            # Double check with OpenAI
+            media_data, id_success = openai_run_basic_identification_by_filename(media_data, file_path=file_path)
 
-            if media_data is None:
-                self._logger.debug("GuessIt did not return any data, trying OpenAI for identification.")
-                media_data = identify_media_with_open_ai(file_path, media_type=None)
-
-            if media_data is None:
+            if media_data is None or not id_success:
                 self._logger.error("GuessIT and OpenAI did not return any data. Giving up on this file.")
                 return None
 

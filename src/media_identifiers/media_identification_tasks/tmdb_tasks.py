@@ -52,11 +52,11 @@ def tmdb_get_movie_external_ids(media_data: dict, **kwargs):
     return _tmdb_get_media_external_ids(media_data, **kwargs, media_type="movie")
 
 
-def tmdb_identify_series_by_id(media_data: dict, **kwargs):
+def tmdb_identify_series_by_title_and_id(media_data: dict, **kwargs):
     """
     Tries to identify a series with TMDB by title and then gets the details for that show using the TMDb ID.
     """
-    log_tag = tmdb_identify_series_by_id.__name__
+    log_tag = tmdb_identify_series_by_title_and_id.__name__
 
     if media_data is None:
         _logger.debug(f"[{log_tag}] No media provided. Skipping task.")
