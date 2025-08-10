@@ -3,6 +3,7 @@ from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
 from src.repositories.base_repository import BaseRepository
+from src.utils import is_valid_year
 
 
 class MediaInfoCache(BaseRepository):
@@ -87,6 +88,7 @@ class MediaInfoCache(BaseRepository):
 
             media_type = obj.get('media_type')
             title = obj.get('title')
+            year = obj.get('year')
 
             if any(x is None for x in [media_type, title]):
                 self._logger.debug("Object does not contain all required fields, returning None")
@@ -104,11 +106,18 @@ class MediaInfoCache(BaseRepository):
                             self._logger.debug("Object does not contain season or episode number, returning None")
                             return None
 
-                        query = f"{base_query} and season = %s and episode = %s;"
-                        cursor.execute(query, (title, title, media_type, season_number, episode_number))
+                        query = f"{base_query} and season = %s and episode = %s"
+                        if is_valid_year(year):
+                            query = f"{query} and year = %s"
+                            cursor.execute(query, (title, title, media_type, season_number, episode_number, year))
+                        else:
+                            cursor.execute(query, (title, title, media_type, season_number, episode_number))
                     elif media_type == 'movie':
-                        query = f"{base_query};"
-                        cursor.execute(query, (title, title, media_type))
+                        if is_valid_year(year):
+                            query = f"{base_query} and year = %s"
+                            cursor.execute(query, (title, title, media_type, year))
+                        else:
+                            cursor.execute(base_query, (title, title, media_type))
 
                     else:
                         self._logger.debug("Object does not contain a valid media type, returning None")

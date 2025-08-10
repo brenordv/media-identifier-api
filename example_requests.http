@@ -29,6 +29,18 @@ GET http://localhost:8000/api/guess?it=tmp/Killing.Zoe.1993.1080p.BluRay.x264-LC
 ### Slow Horses S02 E05
 GET http://localhost:8000/api/guess?it=Slow.Horses.S02.NORDiC.720p.WEB-DL.H.265.DD5.1-CiNEMiX/Slow.Horses.S02E05.NORDiC.720p.WEB-DL.H.265.DD5.1-CiNEMiX-poster.jpg
 
+### Slow Horses S03 E01
+GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/Slow.Horses.S03.NORDiC.720p.WEB-DL.H.265.DD5.1-CiNEMiX/Slow.Horses.S03E01.NORDiC.720p.WEB-DL.H.265.DD5.1-CiNEMiX.nfo
+
+### American Dad S02 E01
+GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/American.Dad.S20E01.1080p.WEBRip.x264-BAE/American.Dad.S20E01.1080p.WEBRip.x264-BAE.mkv
+
+### Final Destination / TheFinal Destination
+GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/Final.Destination.MOViE.PACK.1080p.BluRay.x264-HiTSQUAD/The.Final.Destination.1080p.BluRay.x264-METiS/m-fd4-1080p.mkv
+
+### The Incredible Hulk
+GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/Marvel.Cinematic.Universe.Phase.01-04.1080p.BluRay.10Bit.X265.DD.5.1-Chivaman/The.Incredible.Hulk.2008.1080p.BluRay.10Bit.X265.DD.5.1-Chivaman.mkv
+
 ### Health Check
 GET http://localhost:8000/api/health
 

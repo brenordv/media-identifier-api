@@ -6,6 +6,7 @@ import requests
 from simple_log_factory.log_factory import log_factory
 
 from src.models.media_info import MediaInfoBuilder
+from src.utils import is_valid_year
 
 _tmdb_api_key = None
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
@@ -129,14 +130,14 @@ def _identify_media_with_tmdb_multi_search(query: str) -> Optional[Dict[str, Any
     return multi_data
 
 
-def identify_media_with_tmdb_movie_search(query: str) -> Optional[Dict[str, Any]]:
-    result = _identify_media_with_tmdb_by_type(query, 'movie')
+def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None]) -> Optional[Dict[str, Any]]:
+    result = _identify_media_with_tmdb_by_type(query, 'movie', year)
     if result is None:
         return None
     return result.with_media_type('movie').build()
 
-def identify_media_with_tmdb_series_search(query: str) -> Optional[Dict[str, Any]]:
-    result = _identify_media_with_tmdb_by_type(query, 'tv')
+def identify_media_with_tmdb_series_search(query: str, year: Union[int, None]) -> Optional[Dict[str, Any]]:
+    result = _identify_media_with_tmdb_by_type(query, 'tv', year)
     if result is None:
         return None
 
@@ -150,12 +151,15 @@ def identify_media_with_tmdb_series_search(query: str) -> Optional[Dict[str, Any
     return series_data
 
 
-def _identify_media_with_tmdb_by_type(query: str, media_type: str) -> Union[MediaInfoBuilder, None]:
+def _identify_media_with_tmdb_by_type(query: str, media_type: str, year: Union[int, None]) -> Union[MediaInfoBuilder, None]:
     params = {
         'query': query,
         'include_adult': True,
         'page': 1
     }
+
+    if is_valid_year(year):
+        params['year'] = year
 
     response_data = _make_request(f'https://api.themoviedb.org/3/search/{media_type}', params)
 

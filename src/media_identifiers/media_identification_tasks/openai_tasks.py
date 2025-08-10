@@ -39,7 +39,11 @@ def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwarg
 
     season, episode = _parse_season_episode(identify_series_season_episode_with_open_ai(file_path))
 
-    return merge_media_info(media_data, {"season": season, "episode": episode})
+    return merge_media_info(media_data, {
+        "season": season,
+        "episode": episode,
+        "used_openai": True
+    })
 
 
 def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
@@ -67,7 +71,11 @@ def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
     else:
         title = identify_series_title_with_open_ai(file_path)
 
-    return merge_media_info(media_data, {"title": title, "media_type": media_type}), True
+    return merge_media_info(media_data, {
+        "title": title,
+        "media_type": media_type,
+        "used_openai": True
+    }), True
 
 
 def _parse_season_episode(data):

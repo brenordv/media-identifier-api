@@ -19,8 +19,9 @@ def tmdb_identify_movie_by_id(media_data: dict, **kwargs):
         return None, False
 
     title = media_data.get('title')
+    year = media_data.get('year')
 
-    search_result = identify_media_with_tmdb_movie_search(title)
+    search_result = identify_media_with_tmdb_movie_search(title, year)
     if search_result is None:
         _logger.debug(f"[{log_tag}] No search result found for title: [{title}]. Skipping task. Retry is allowed.")
         return media_data, False
