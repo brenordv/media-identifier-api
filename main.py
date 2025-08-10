@@ -51,7 +51,10 @@ async def guess_filename(
 
         media_data = media_info_extender.identify_media(it)
 
-        status_code = 200 if media_data is None or len(media_data) == 0 else 204
+        if media_data is None or len(media_data) == 0:
+            return JSONResponse(content={}, status_code=204)
+
+        status_code = 200
 
         request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
 
