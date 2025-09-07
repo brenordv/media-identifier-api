@@ -21,7 +21,16 @@ class MediaIdentifier:
 
             # Basic guess using GuessIT
             media_data = identify_media_with_guess_it(file_path)
-            # Double check with OpenAI
+
+            cached_data = self._cache.get_cached_by_obj(media_data)
+
+            if cached_data:
+                title = media_data.get('title')
+                self._logger.debug(f"Found cached data for object: {title}")
+
+                return cached_data
+
+            # If we didn't find the data in the cache just by identifying with GuessIT, double-check with OpenAI, and try again.
             media_data, id_success = openai_run_basic_identification_by_filename(media_data, file_path=file_path)
 
             if media_data is None or not id_success:
