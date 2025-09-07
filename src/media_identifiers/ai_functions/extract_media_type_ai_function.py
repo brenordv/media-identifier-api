@@ -121,6 +121,8 @@ def extract_media_type_from_filename(_input_filename: str) -> str:
     # - "Blade Runner 2049 2017 1080p BluRay x264-GROUP.mkv" -> movie
     # - "La La Land 2016 1080p BluRay x264 YIFY.mp4" -> movie
     # - "John Wick Chapter 3 Parabellum 2019 720p BluRay.mkv" -> movie
+    # - "Friday.The.13th.The.Final.Chapter.1984.REMASTERED.1080P.BLURAY.X264-WATCHABLE.mkv" -> movie
+    # - "Friday.The.13th.S03E20.The.Channel.Pit.REMASTERED.1080P.BLURAY.X264-WATCHABLE.mkv" -> tv
     # - "readme.md" -> unknown
     return OUTPUT
 
