@@ -2,6 +2,9 @@ from datetime import datetime
 from typing import Union, List, Optional
 from uuid import uuid4
 
+from src.converters.create_searchable_reference import create_searchable_reference
+from src.converters.replace_roman_numerals import replace_roman_numerals
+
 
 class MediaInfoBuilder:
     def __init__(self):
@@ -42,7 +45,11 @@ class MediaInfoBuilder:
         return self
 
     def with_searchable_reference(self, searchable_reference: str):
-        self._searchable_reference = searchable_reference
+        if searchable_reference is None or searchable_reference.strip() == '':
+            return self
+
+
+        self._searchable_reference = create_searchable_reference(searchable_reference)
         return self
 
     def with_tmdb_id(self, tmdb_id: int):

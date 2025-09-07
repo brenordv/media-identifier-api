@@ -2,6 +2,7 @@ import psycopg2
 from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
+from src.converters.create_searchable_reference import create_searchable_reference
 from src.repositories.base_repository import BaseRepository
 from src.utils import is_valid_year
 
@@ -88,6 +89,8 @@ class MediaInfoCache(BaseRepository):
 
             media_type = obj.get('media_type')
             title = obj.get('title')
+            searchable_reference_from_title = create_searchable_reference(title)
+            searchable_reference = obj.get('searchable_reference')
             year = obj.get('year')
 
             if any(x is None for x in [media_type, title]):
@@ -96,7 +99,7 @@ class MediaInfoCache(BaseRepository):
 
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
-                    base_query = "SELECT * FROM cached_media WHERE (title ILIKE %s or searchable_reference ILIKE %s) and media_type ILIKE %s"
+                    base_query = "SELECT * FROM cached_media WHERE (title ILIKE %s or searchable_reference ILIKE %s or searchable_reference ILIKE %s) and media_type ILIKE %s"
 
                     if media_type == 'tv':
                         episode_number = obj.get('episode')
@@ -115,9 +118,9 @@ class MediaInfoCache(BaseRepository):
                     elif media_type == 'movie':
                         if is_valid_year(year):
                             query = f"{base_query} and year = %s"
-                            cursor.execute(query, (title, title, media_type, year))
+                            cursor.execute(query, (title, searchable_reference_from_title, searchable_reference, media_type, year))
                         else:
-                            cursor.execute(base_query, (title, title, media_type))
+                            cursor.execute(base_query, (title, searchable_reference_from_title, searchable_reference, media_type))
 
                     else:
                         self._logger.debug("Object does not contain a valid media type, returning None")
