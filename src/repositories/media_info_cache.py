@@ -108,7 +108,7 @@ class MediaInfoCache(BaseRepository):
                         season_number = obj.get('season')
 
                         if episode_number is None and season_number is None:
-                            self._logger.debug("Object does not contain season or episode number, returning None")
+                            self._logger.debug(f"Object does not contain season or episode number, returning None. Object: {obj}")
                             return None
 
                         query = f"{base_query} and season = %s and episode = %s"
