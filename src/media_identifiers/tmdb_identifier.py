@@ -206,7 +206,11 @@ def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str,
         headers = _prepare_tmdb_headers()
         params = _prepare_tmdb_parameters(params)
 
+        _logger.debug(f"TMDB API: About to make request to url: [{url}] Params: [{params}]")
+
         response = requests.get(url, params=params, headers=headers, timeout=10)
+
+        _logger.debug(f"TMDB API: Got response [{response.status_code}]")
 
         if response.status_code == 429:
             debounce_time = _get_debounce_time()
