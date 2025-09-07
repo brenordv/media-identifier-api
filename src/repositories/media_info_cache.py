@@ -101,6 +101,8 @@ class MediaInfoCache(BaseRepository):
                 with conn.cursor() as cursor:
                     base_query = "SELECT * FROM cached_media WHERE (title ILIKE %s or searchable_reference ILIKE %s or searchable_reference ILIKE %s) and media_type ILIKE %s"
 
+                    query_args = ()
+
                     if media_type == 'tv':
                         episode_number = obj.get('episode')
                         season_number = obj.get('season')
@@ -112,15 +114,19 @@ class MediaInfoCache(BaseRepository):
                         query = f"{base_query} and season = %s and episode = %s"
                         if is_valid_year(year):
                             query = f"{query} and year = %s"
-                            cursor.execute(query, (title, title, media_type, season_number, episode_number, year))
+                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number, year)
+                            cursor.execute(query, query_args)
                         else:
-                            cursor.execute(query, (title, title, media_type, season_number, episode_number))
+                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number)
+                            cursor.execute(query, query_args)
                     elif media_type == 'movie':
                         if is_valid_year(year):
                             query = f"{base_query} and year = %s"
-                            cursor.execute(query, (title, searchable_reference_from_title, searchable_reference, media_type, year))
+                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, year)
+                            cursor.execute(query, query_args)
                         else:
-                            cursor.execute(base_query, (title, searchable_reference_from_title, searchable_reference, media_type))
+                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type)
+                            cursor.execute(base_query, query_args)
 
                     else:
                         self._logger.debug("Object does not contain a valid media type, returning None")
@@ -129,6 +135,9 @@ class MediaInfoCache(BaseRepository):
                     result = cursor.fetchone()
                     if result:
                         return dict(zip([desc[0] for desc in cursor.description], result))
+
+                    self._logger.debug(f"No cached data found for object. Query Args: {query_args}")
+
                     return None
         except psycopg2.Error as e:
             error_message = f"Error getting cached data by object: {str(e)}"
