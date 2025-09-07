@@ -2,8 +2,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import traceback
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+
 from src.utils import set_request_id
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.repositories.repository_factory import get_repository
@@ -52,10 +53,11 @@ async def guess_filename(
         media_data = media_info_extender.identify_media(it)
 
         if media_data is None or len(media_data) == 0:
-            return JSONResponse(content={}, status_code=204)
+            status_code = status.HTTP_204_NO_CONTENT
+            request_logger.log_completed(request_id, status_code, None)
+            return Response(status_code=status_code)
 
         status_code = 200
-
         request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
 
         # Convert result to a serializable format
