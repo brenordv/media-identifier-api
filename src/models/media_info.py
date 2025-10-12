@@ -3,7 +3,6 @@ from typing import Union, List, Optional
 from uuid import uuid4
 
 from src.converters.create_searchable_reference import create_searchable_reference
-from src.converters.replace_roman_numerals import replace_roman_numerals
 
 
 class MediaInfoBuilder:

@@ -7,5 +7,5 @@ def create_searchable_reference(text: str):
     if text is None or text.strip() == '':
         return text
 
-    return normalize_spaces(replace_special_chars(replace_roman_numerals(text))).strip()
+    return normalize_spaces(replace_special_chars(replace_roman_numerals(text, case_insensitive=True))).strip()
 

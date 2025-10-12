@@ -114,9 +114,10 @@ if __name__ == "__main__":
         "In roman: XLII; in arabic: ?",
         "Invalid forms like IC should NOT change.",
         "Edge punctuation: (XV), [X], 'IV', \"CM\"",
+        "Different Cases Ii ii II"
     ]
     for s in examples:
-        print(s, "=>", replace_roman_numerals(s))
+        print(s, "=>", replace_roman_numerals(s, case_insensitive=True))
 
     # Case-insensitive variant (be careful in prose!)
     print(replace_roman_numerals("mix vi vii ix", case_insensitive=True))
