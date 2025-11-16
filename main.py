@@ -1,7 +1,7 @@
-from datetime import datetime, UTC
-
 from dotenv import load_dotenv
 load_dotenv()
+
+from datetime import datetime, UTC
 
 import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
@@ -55,19 +55,7 @@ async def guess_filename(
 
         media_data = media_info_extender.get_media_info_by_filename(it)
 
-        if media_data is None or len(media_data) == 0:
-            status_code = status.HTTP_204_NO_CONTENT
-            request_logger.log_completed(request_id, status_code, None)
-            return Response(status_code=status_code)
-
-        status_code = 200
-        request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
-
-        # Convert result to a serializable format
-        serializable_result = {k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v 
-                              for k, v in media_data.items()}
-
-        return JSONResponse(content=serializable_result, status_code=status_code)
+        return _prepare_media_info_response(media_data, request_id)
     except Exception as e:
         # Capture the error and return a 500 response
         error_detail = f"Error processing filename: {str(e)}"
@@ -145,19 +133,7 @@ async def get_media_info(
             episode=episode,
         )
 
-        if media_data is None or len(media_data) == 0:
-            status_code = status.HTTP_204_NO_CONTENT
-            request_logger.log_completed(request_id, status_code, None)
-            return Response(status_code=status_code)
-
-        status_code = 200
-        request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
-
-        # Convert result to a serializable format
-        serializable_result = {k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
-                               for k, v in media_data.items()}
-
-        return JSONResponse(content=serializable_result, status_code=status_code)
+        return _prepare_media_info_response(media_data, request_id)
     except Exception as e:
         # Capture the error and return a 500 response
         error_detail = f"Error getting media info: {str(e)}"
@@ -213,3 +189,20 @@ async def get_statistics(num_requests: int = Query(100, description="Number of r
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+def _prepare_media_info_response(media_data, request_id):
+    if media_data is None or len(media_data) == 0:
+        status_code = status.HTTP_204_NO_CONTENT
+        request_logger.log_completed(request_id, status_code, None)
+        return Response(status_code=status_code)
+
+    status_code = status.HTTP_200_OK
+    request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
+
+    serializable_result = {
+        k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
+        for k, v in media_data.items()
+    }
+
+    return JSONResponse(content=serializable_result, status_code=status_code)
