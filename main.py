@@ -109,10 +109,12 @@ async def get_media_info(
     if not media_type or not year or not title:
         raise HTTPException(status_code=400, detail="Required information is missing. You must provide media_type, year, and title.")
 
-    if media_type.lower() not in ['movie', 'tv']:
+    normalized_media_type = media_type.lower().strip()
+
+    if normalized_media_type not in ['movie', 'tv']:
         raise HTTPException(status_code=400, detail="Invalid media_type. Supported types are 'movie' and 'tv'.")
 
-    if media_type.lower() == 'tv':
+    if normalized_media_type == 'tv':
         if not season:
             raise HTTPException(status_code=400, detail="Season number is required for TV shows.")
 
@@ -134,7 +136,13 @@ async def get_media_info(
     try:
         set_request_id(request_id)
 
-        media_data = media_info_extender.get_media_info_by_filename(it)
+        media_data = media_info_extender.get_media_info(
+            media_type=normalized_media_type,
+            year=year,
+            title=title,
+            season=season,
+            episode=episode,
+        )
 
         if media_data is None or len(media_data) == 0:
             status_code = status.HTTP_204_NO_CONTENT

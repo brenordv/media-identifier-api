@@ -54,6 +54,7 @@ These are intentionally opinionated to keep the codebase coherent.
   - Use type hints everywhere (PEP 484/PEP 561 style).
   - Use duck typing whenever possible, following the patterns of the repo.
   - Avoid `Any` unless truly unavoidable; if used, keep it localized and documented.
+  - Avoid `from __future__ import annotations`
 
 - **Function and module size**
   - Aim for functions ≤ ~50 lines where feasible.

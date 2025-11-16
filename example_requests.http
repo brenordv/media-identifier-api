@@ -47,3 +47,7 @@ GET http://localhost:8000/api/health
 ### Statistics
 GET http://localhost:8000/api/statistics
 
+### Test
+#GET http://localhost:8000/api/guess?it=/watch/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD/Subs/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD.idx
+#GET http://localhost:8000/api/guess?it=Possessed (2000)
+GET http://localhost:8000/api/media-info?title=Possessed&year=2000&media_type=movie

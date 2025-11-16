@@ -1,7 +1,7 @@
 import inspect
 import os
 from typing import Optional, Union
-from openai import OpenAI, RateLimitError
+from openai import OpenAI, OpenAIError, RateLimitError
 from simple_log_factory.log_factory import log_factory
 
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
@@ -12,11 +12,8 @@ from src.repositories.repository_factory import get_repository
 
 _open_ai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
-_openai_request_logger = get_repository("openai_logger")
-_open_ai_client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY"),
-    organization=os.environ.get("OPENAI_ORGANIZATION"),
-)
+_openai_request_logger = None
+_open_ai_client = None
 
 
 def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
@@ -115,7 +112,11 @@ This is very important: you are forbidden from adding explanations, rephrasing, 
 Think step by step and double-check your answer before responding, especially when the input is ambiguous or tricky.
 You are forbidden from guessing, inferring, or deducing information that is not explicitly present in the user input or function comments."""
 
-        response = _open_ai_client.responses.create(
+        client = _get_open_ai_client()
+        if client is None:
+            return None
+
+        response = client.responses.create(
             model=_open_ai_model,
             instructions=ai_sys_instructions,
             input=ai_input,
@@ -123,7 +124,9 @@ You are forbidden from guessing, inferring, or deducing information that is not 
 
         usage = _extract_usage_from_response(response.usage)
 
-        _openai_request_logger.log(**usage)
+        logger = _get_openai_request_logger()
+        if logger:
+            logger.log(**usage)
 
         return response.output_text
     except RateLimitError as e:
@@ -153,3 +156,37 @@ def _extract_usage_from_response(usage):
         'reasoning_tokens': reasoning_tokens,
         'total_tokens': total_tokens
     }
+
+
+def _get_openai_request_logger():
+    global _openai_request_logger
+
+    if _openai_request_logger is None:
+        try:
+            _openai_request_logger = get_repository("openai_logger")
+        except ValueError as exc:
+            _logger.error(f"Unable to initialise OpenAI logger repository: {exc}")
+            return None
+    return _openai_request_logger
+
+
+def _get_open_ai_client():
+    global _open_ai_client
+
+    if _open_ai_client is not None:
+        return _open_ai_client
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        _logger.error("OPENAI_API_KEY environment variable must be set to use OpenAI integrations.")
+        return None
+
+    organization = os.environ.get("OPENAI_ORGANIZATION")
+
+    try:
+        _open_ai_client = OpenAI(api_key=api_key, organization=organization)
+    except OpenAIError as exc:
+        _logger.error(f"Failed to initialise OpenAI client: {exc}")
+        _open_ai_client = None
+
+    return _open_ai_client

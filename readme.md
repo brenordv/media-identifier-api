@@ -199,6 +199,18 @@ Response:
 ]
 ```
 
+### Retrieving Media Information with Metadata
+
+```
+GET /api/media-info?media_type=movie&year=2024&title=Dune%3A%20Part%20Two
+```
+
+```
+GET /api/media-info?media_type=tv&year=2023&title=Example%20Show&season=1&episode=2
+```
+
+> When using metadata for TV episodes, both `season` and `episode` parameters are required. The pipeline dynamically assembles the necessary identification steps based on the provided fields, so you can mix filename and metadata-driven lookups while keeping caching and enrichment consistent.
+
 ## More Examples
 
 See the [example_requests.http](example_requests.http) file for more usage examples.

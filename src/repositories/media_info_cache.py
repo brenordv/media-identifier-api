@@ -165,6 +165,46 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    def get_cached_by_tmdb_id(self, tmdb_id: int):
+        try:
+            self._logger.debug(f"Getting cached media by TMDb ID: {tmdb_id}")
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT * FROM cached_media WHERE tmdb_id = %s;", (tmdb_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(zip([desc[0] for desc in cursor.description], result))
+                    return None
+        except psycopg2.Error as e:
+            error_message = f"Error getting cached data by TMDb ID: {str(e)}"
+            self._logger.error(error_message)
+            raise RuntimeError(error_message) from e
+
+    def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int):
+        try:
+            self._logger.debug(
+                f"Getting cached TV episode by Series ID: {tmdb_series_id}, Season: {season}, Episode: {episode}"
+            )
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT * FROM cached_media
+                        WHERE tmdb_series_id = %s
+                          AND season = %s
+                          AND episode = %s;
+                        """,
+                        (tmdb_series_id, season, episode),
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(zip([desc[0] for desc in cursor.description], result))
+                    return None
+        except psycopg2.Error as e:
+            error_message = f"Error getting cached TV episode: {str(e)}"
+            self._logger.error(error_message)
+            raise RuntimeError(error_message) from e
+
     def cache_data(self, new_record: dict):
         try:
             self._logger.debug(f"Caching record with title: {new_record.get('title', '[Unknown]')}")
