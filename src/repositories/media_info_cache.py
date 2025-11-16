@@ -3,6 +3,8 @@ from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
 from src.converters.create_searchable_reference import create_searchable_reference
+from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.repositories.base_repository import BaseRepository
 from src.utils import is_valid_year
 
@@ -87,7 +89,7 @@ class MediaInfoCache(BaseRepository):
                 self._logger.debug("No object provided, returning None")
                 return None
 
-            media_type = obj.get('media_type')
+            media_type = normalize_media_type(obj.get('media_type'))
             title = obj.get('title')
             searchable_reference_from_title = create_searchable_reference(title)
             searchable_reference = obj.get('searchable_reference')
@@ -103,7 +105,7 @@ class MediaInfoCache(BaseRepository):
 
                     query_args = ()
 
-                    if media_type == 'tv':
+                    if media_type == TV:
                         episode_number = obj.get('episode')
                         season_number = obj.get('season')
 
@@ -119,7 +121,7 @@ class MediaInfoCache(BaseRepository):
                         else:
                             query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number)
                             cursor.execute(query, query_args)
-                    elif media_type == 'movie':
+                    elif media_type == MOVIE:
                         if is_valid_year(year):
                             query = f"{base_query} and year = %s"
                             query_args = (title, searchable_reference_from_title, searchable_reference, media_type, year)
@@ -153,8 +155,12 @@ class MediaInfoCache(BaseRepository):
                         query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s;"
                         cursor.execute(query, (search_term,))
                     else:
+                        normalized_media_type = normalize_media_type(media_type)
+                        if normalized_media_type is None:
+                            self._logger.debug("Media type provided for cache lookup is invalid.")
+                            return None
                         query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s AND media_type = %s;"
-                        cursor.execute(query, (search_term, media_type,))
+                        cursor.execute(query, (search_term, normalized_media_type,))
 
                     result = cursor.fetchone()
                     if result:

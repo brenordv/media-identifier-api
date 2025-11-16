@@ -7,6 +7,7 @@ import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
+from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
 from src.utils import set_request_id
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.repositories.repository_factory import get_repository
@@ -109,12 +110,12 @@ async def get_media_info(
     if not media_type or not year or not title:
         raise HTTPException(status_code=400, detail="Required information is missing. You must provide media_type, year, and title.")
 
-    normalized_media_type = media_type.lower().strip()
+    normalized_media_type = normalize_media_type(media_type)
 
-    if normalized_media_type not in ['movie', 'tv']:
+    if normalized_media_type is None:
         raise HTTPException(status_code=400, detail="Invalid media_type. Supported types are 'movie' and 'tv'.")
 
-    if normalized_media_type == 'tv':
+    if is_tv(normalized_media_type):
         if not season:
             raise HTTPException(status_code=400, detail="Season number is required for TV shows.")
 

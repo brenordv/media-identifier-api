@@ -11,6 +11,11 @@ from src.media_identifiers.media_identification_tasks.tmdb_tasks import (
     tmdb_identify_series_by_title_and_id,
 )
 from src.media_identifiers.pipeline.base import PipelineContext, PipelineHandler, StepResult
+from src.media_identifiers.media_type_helpers import (
+    is_media_type_valid,
+    is_movie,
+    is_tv,
+)
 from src.models.media_identification_request import RequestMode
 
 
@@ -26,7 +31,7 @@ class CacheLookupHandler(PipelineHandler):
             return False
         if context.media.get("title") is None:
             return False
-        if context.media.get("media_type") is None:
+        if not is_media_type_valid(context.media.get("media_type")):
             return False
         return True
 
@@ -74,7 +79,7 @@ class OpenAIBasicIdentificationHandler(PipelineHandler):
             return False
         if context.media is None:
             return True
-        if context.media.get("title") and context.media.get("media_type") in {"movie", "tv"}:
+        if context.media.get("title") and is_media_type_valid(context.media.get("media_type")):
             return False
         return True
 
@@ -96,7 +101,7 @@ class OpenAISeriesSeasonEpisodeHandler(PipelineHandler):
     name = "openai_series_season_episode"
 
     def handles(self, context: PipelineContext) -> bool:
-        if context.media_type != "tv":
+        if not is_tv(context.media_type):
             return False
         if context.media is None:
             return False
@@ -124,7 +129,7 @@ class TMDBIdentifyMovieHandler(PipelineHandler):
     name = "tmdb_identify_movie"
 
     def handles(self, context: PipelineContext) -> bool:
-        if context.media_type != "movie":
+        if not is_movie(context.media_type):
             return False
         if context.media is None:
             return False
@@ -148,7 +153,7 @@ class TMDBMovieExternalIdsHandler(PipelineHandler):
     name = "tmdb_movie_external_ids"
 
     def handles(self, context: PipelineContext) -> bool:
-        if context.media_type != "movie":
+        if not is_movie(context.media_type):
             return False
         if context.media is None:
             return False
@@ -171,7 +176,7 @@ class TMDBIdentifySeriesHandler(PipelineHandler):
     name = "tmdb_identify_series"
 
     def handles(self, context: PipelineContext) -> bool:
-        if context.media_type != "tv":
+        if not is_tv(context.media_type):
             return False
         if context.media is None:
             return False
@@ -195,7 +200,7 @@ class TMDBSeriesExternalIdsHandler(PipelineHandler):
     name = "tmdb_series_external_ids"
 
     def handles(self, context: PipelineContext) -> bool:
-        if context.media_type != "tv":
+        if not is_tv(context.media_type):
             return False
         if context.media is None:
             return False

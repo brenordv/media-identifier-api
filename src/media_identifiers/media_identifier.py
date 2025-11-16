@@ -2,9 +2,9 @@ from typing import Optional
 
 from simple_log_factory.log_factory import log_factory
 
+from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_tv
 from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
 from src.models.media_identification_request import MediaIdentificationRequest
-from src.models.media_info import is_media_type_valid
 from src.repositories.repository_factory import get_repository
 
 
@@ -65,7 +65,7 @@ class MediaIdentifier:
     def _persist_media(self, media: dict) -> Optional[dict]:
         media_type = media.get("media_type")
 
-        if media_type == "movie":
+        if is_movie(media_type):
             tmdb_id = media.get("tmdb_id")
             if tmdb_id is None:
                 self._logger.debug("Movie media lacks TMDb ID; returning without caching.")
@@ -78,7 +78,7 @@ class MediaIdentifier:
 
             return self._cache.cache_data(media)
 
-        if media_type == "tv":
+        if is_tv(media_type):
             tmdb_id = media.get("tmdb_id")
             season = media.get("season")
             episode = media.get("episode")

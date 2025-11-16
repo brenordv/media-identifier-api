@@ -5,6 +5,8 @@ from typing import Dict, Any, Optional, Union
 import requests
 from simple_log_factory.log_factory import log_factory
 
+from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaInfoBuilder
 from src.utils import is_valid_year
 
@@ -23,7 +25,7 @@ def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     return _get_record_builder_for_tmdb_data(movie_details) \
-        .with_media_type('movie') \
+        .with_media_type(MOVIE) \
         .build()
 
 
@@ -38,7 +40,7 @@ def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
         return None
 
     return _get_record_builder_for_tmdb_data(series_details) \
-        .with_media_type('tv') \
+        .with_media_type(TV) \
         .with_tmdb_series_id(tmdb_id) \
         .build()
 
@@ -60,7 +62,7 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
         .with_episode_title(episode_details.get('name')) \
         .with_episode(episode_details.get('episode_number', episode)) \
         .with_season(episode_details.get('season_number', season)) \
-        .with_media_type('tv') \
+        .with_media_type(TV) \
         .with_tmdb_id(episode_details.get('id')) \
         .with_tmdb_series_id(tmdb_id) \
         .with_overview(episode_details.get('overview')) \
@@ -72,20 +74,21 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
-    if media_type not in ['movie', 'tv']:
-        raise ValueError("Media type must be either 'movie' or 'tv'.")
+    normalized_media_type = normalize_media_type(media_type)
+    if normalized_media_type is None:
+        raise ValueError(f"Media type must be either '{MOVIE}' or '{TV}'.")
 
-    if media_type == 'tv':
+    if normalized_media_type == TV:
         if season_number is not None and episode_number is not None:
             url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/external_ids'
         else:
             url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids'
 
-    elif media_type == 'movie':
+    elif normalized_media_type == MOVIE:
         url = f'https://api.themoviedb.org/3/movie/{tmdb_id}/external_ids'
 
     else:
-        raise ValueError("Media type must be either 'movie' or 'tv'.")
+        raise ValueError(f"Media type must be either '{MOVIE}' or '{TV}'.")
 
     external_ids = _make_request(url)
 
@@ -106,18 +109,18 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
 
 
 def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
-    result = _identify_media_with_tmdb_by_type(query, 'movie', year)
+    result = _identify_media_with_tmdb_by_type(query, MOVIE, year)
     if result is None:
         return None
-    return result.with_media_type('movie').build()
+    return result.with_media_type(MOVIE).build()
 
 
 def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
-    result = _identify_media_with_tmdb_by_type(query, 'tv', year)
+    result = _identify_media_with_tmdb_by_type(query, TV, year)
     if result is None:
         return None
 
-    series_data = result.with_media_type('tv').build()
+    series_data = result.with_media_type(TV).build()
 
     # When fetching info on a series, the id is actually the id for the series itself, not the episode.
     # We'll get that later.

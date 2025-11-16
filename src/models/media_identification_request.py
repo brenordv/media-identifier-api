@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from src.converters.create_searchable_reference import create_searchable_reference
+from src.media_identifiers.helpers import apply_basic_media_attributes
+from src.media_identifiers.media_type_helpers import is_tv
 from src.models.media_info import MediaInfoBuilder
 
 
@@ -84,26 +86,15 @@ class MediaIdentificationRequest:
         return bool(self.file_path and self.file_path.strip())
 
     def seed_media_info(self) -> Dict[str, Any]:
-        builder = MediaInfoBuilder()
-
-        if self.title:
-            builder = (
-                builder.with_title(self.title.strip())
-                .with_original_title(self.title.strip())
-                .with_searchable_reference(self.title)
-            )
-
-        if self.media_type:
-            builder = builder.with_media_type(self.media_type)
-
-        if self.year is not None:
-            builder = builder.with_year(self.year)
-
-        if self.season is not None:
-            builder = builder.with_season(self.season)
-
-        if self.episode is not None:
-            builder = builder.with_episode(self.episode)
+        builder = apply_basic_media_attributes(
+            MediaInfoBuilder(),
+            title=self.title,
+            media_type=self.media_type,
+            year=self.year,
+            season=self.season,
+            episode=self.episode,
+            searchable_reference=self.title,
+        )
 
         if self.tmdb_id is not None:
             builder = builder.with_tmdb_id(self.tmdb_id)
@@ -152,7 +143,7 @@ class MediaIdentificationRequest:
         if self.year is None:
             raise ValueError("year must be provided for metadata requests.")
 
-        if self.media_type == "tv":
+        if is_tv(self.media_type):
             if self.season is None or self.episode is None:
                 raise ValueError("season and episode must be provided for TV metadata requests.")
 

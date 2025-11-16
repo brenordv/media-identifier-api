@@ -7,6 +7,11 @@ from simple_log_factory.log_factory import log_factory
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
 from src.media_identifiers.ai_functions.extract_media_type_ai_function import extract_media_type_from_filename
 from src.media_identifiers.ai_functions.extract_season_episode_ai_function import extract_season_episode_from_filename
+from src.media_identifiers.helpers import apply_basic_media_attributes, parse_season_episode_string
+from src.media_identifiers.media_type_helpers import (
+    is_media_type_valid,
+    is_movie,
+)
 from src.models.media_info import MediaInfoBuilder
 from src.repositories.repository_factory import get_repository
 
@@ -22,50 +27,33 @@ def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, Non
         if not media_type:
             _logger.warning(f"Could not identify media type for file: {file_path}")
             return None
-        if media_type not in ['movie', 'tv']:
+        if not is_media_type_valid(media_type):
             _logger.warning(f"Unknown media type: {media_type} for file: {file_path}")
             return None
 
-    if media_type == 'movie':
+    if is_movie(media_type):
         title = identify_movie_title_with_open_ai(file_path)
         season, episode = None, None
     else:
         title = identify_series_title_with_open_ai(file_path)
-        season, episode = _parse_season_episode(identify_series_season_episode_with_open_ai(file_path))
+        season, episode = parse_season_episode_string(
+            identify_series_season_episode_with_open_ai(file_path),
+            logger=_logger,
+        )
 
-    return MediaInfoBuilder() \
-        .with_title(title) \
-        .with_original_title(title) \
-        .with_media_type(media_type) \
-        .with_season(season) \
-        .with_episode(episode) \
+    builder = apply_basic_media_attributes(
+        MediaInfoBuilder(),
+        title=title,
+        media_type=media_type,
+        year=None,
+        season=season,
+        episode=episode,
+        searchable_reference=title,
+    )
+
+    return builder \
         .with_used_openai(True) \
         .build()
-
-
-def _parse_season_episode(data):
-    parts = data.split(',')
-    if len(parts) != 2:
-        _logger.error(f"Invalid season/episode format: {data}")
-        return None, None
-
-    season_parts = parts[0].strip().split(':')
-
-    if len(season_parts) != 2 or not season_parts[1].isdigit():
-        _logger.error(f"Invalid season format: {season_parts}")
-        return None, None
-
-    season = int(season_parts[1])
-
-    episode_parts = parts[1].strip().split(':')
-
-    if len(episode_parts) != 2 or not episode_parts[1].isdigit():
-        _logger.error(f"Invalid episode format: {episode_parts}")
-        return None, None
-
-    episode = int(episode_parts[1])
-
-    return season, episode
 
 
 def identify_media_type_with_open_ai(file_path: str) -> Optional[str]:

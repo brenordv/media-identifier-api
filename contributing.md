@@ -64,6 +64,7 @@ These are intentionally opinionated to keep the codebase coherent.
 - **Control flow & clarity**
   - Avoid deeply nested conditionals; prefer early returns and helper functions.
   - Avoid overly clever one-liners and deeply nested comprehensions.
+  - Avoid code duplication. If you need to repeat the same logic in multiple places, extract a helper.
 
 - **Error handling**
   - Don’t swallow exceptions silently.

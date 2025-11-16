@@ -3,6 +3,7 @@ from typing import Union, List, Optional
 from uuid import uuid4
 
 from src.converters.create_searchable_reference import create_searchable_reference
+from src.media_identifiers.media_type_helpers import normalize_media_type
 
 
 class MediaInfoBuilder:
@@ -171,16 +172,8 @@ class MediaInfoBuilder:
         return self
 
     def with_media_type(self, media_type: str):
-        if media_type is None:
-            self._media_type = "unknown"
-            return self
-
-        media_types = {
-            **dict.fromkeys(["tv-show", "tvshow", "tv show", "tv shows", "tv", "episode", "series", "scripted"], "tv"),
-            **dict.fromkeys(["movie", "film", "movies"], "movie"),
-        }
-
-        self._media_type = media_types.get(media_type.lower().strip(), "unknown").lower().strip()
+        normalized = normalize_media_type(media_type)
+        self._media_type = normalized if normalized else "unknown"
 
         return self
 
@@ -267,4 +260,5 @@ def merge_media_info(existing: dict, new: dict) -> Optional[dict]:
     return merged
 
 def is_media_type_valid(media_type: str) -> bool:
-    return media_type in ['movie', 'tv']
+    normalized = normalize_media_type(media_type)
+    return normalized is not None
