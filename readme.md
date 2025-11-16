@@ -32,6 +32,7 @@ We also log all requests coming in, the results, and if we use OpenAI, we log th
 The application is built with FastAPI and exposes the GuessIt library's functionality through a RESTful API. It provides three main endpoints:
 
 - `/api/guess` - Analyzes a filename and returns structured information
+- `/api/media-info` - Returns information about a media based on its title, etc.
 - `/api/health` - Provides a health check to verify the API is functioning correctly
 - `/api/statistics` - Returns statistics about requests made to the API
 

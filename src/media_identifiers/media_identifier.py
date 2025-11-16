@@ -6,7 +6,7 @@ from src.media_identifiers.media_identification_tasks.guessit_tasks import ident
 from src.media_identifiers.media_identification_tasks.openai_tasks import openai_run_basic_identification_by_filename
 from src.media_identifiers.media_identification_tasks.pipeline_builders import build_movie_identification_pipeline, \
     build_series_identification_pipeline
-from src.models.media_info import is_media_type_valid
+from src.models.media_info import is_media_type_valid, MediaInfoBuilder
 from src.repositories.repository_factory import get_repository
 
 
@@ -15,7 +15,7 @@ class MediaIdentifier:
         self._cache = get_repository('cache')
         self._logger = log_factory("MediaIdentifier", unique_handler_types=True)
 
-    def identify_media(self, file_path: str) -> Optional[dict]:
+    def get_media_info_by_filename(self, file_path: str) -> Optional[dict]:
         try:
             self._logger.debug(f"Identifying media file: {file_path}")
 
@@ -63,6 +63,66 @@ class MediaIdentifier:
 
             for step in identification_pipeline:
                 result_data, success = step(result_data, success=success, file_path=file_path)
+
+            if not success:
+                self._logger.error(f"Failed to identify media file {file_path} using pipeline.")
+                return None
+
+            return self._cache.cache_data(result_data)
+        except Exception as e:
+            self._logger.error(f"Error identifying media file {file_path}: {str(e)}")
+            raise
+
+    def get_media_info(
+            self,
+            media_type: str,
+            year: int,
+            title: str,
+            season: int,
+            episode: int,
+    ) -> Optional[dict]:
+
+        try:
+            self._logger.debug(
+                f"Getting media info. Type: {media_type}, Year: {year}, Title: {title}, Season: {season}, Episode: {episode}")
+
+            media_data = MediaInfoBuilder() \
+                .with_searchable_reference(title) \
+                .with_title(title) \
+                .with_original_title(title) \
+                .with_year(year) \
+                .with_media_type(media_type) \
+                .with_season(season) \
+                .with_episode(episode) \
+                .with_used_guessit(False) \
+                .build()
+
+            cached_data = self._cache.get_cached_by_obj(media_data)
+
+            if cached_data:
+                title = media_data.get('title')
+                self._logger.debug(f"Found cached data for object: {title}")
+
+                return cached_data
+
+            media_type = media_data.get('media_type')
+            if not is_media_type_valid(media_type):
+                self._logger.warning(f"Media type [{media_type}] is not valid. Skipping.")
+                return None
+
+            if media_type == 'movie':
+                # Build a movie identification pipeline here.
+                identification_pipeline = build_movie_identification_pipeline()
+
+            else:
+                # Build series identification pipeline here.
+                identification_pipeline = build_series_identification_pipeline()
+
+            result_data = media_data
+            success = True
+
+            for step in identification_pipeline:
+                result_data, success = step(result_data, success=success)
 
             if not success:
                 self._logger.error(f"Failed to identify media file {file_path} using pipeline.")

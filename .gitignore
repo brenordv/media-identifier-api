@@ -7,6 +7,7 @@
 *$py.class
 **/.vitepress/cache
 **/.vitepress/dist
+*.aof
 *.cover
 *.db
 *.egg
@@ -21,6 +22,7 @@
 *.pot
 *.py.cover
 *.py[codz]
+*.rdb
 *.sage.py
 *.seed
 *.so
@@ -47,6 +49,7 @@
 .hypothesis/
 .idea/**/aws.xml
 .idea/**/contentModel.xml
+.idea/**/copilot.data.migration.*.xml
 .idea/**/dataSources.ids
 .idea/**/dataSources.local.xml
 .idea/**/dataSources/
@@ -114,6 +117,7 @@ MANIFEST
 __marimo__/
 __pycache__/
 __pypackages__/
+activemq-data/
 atlassian-ide-plugin.xml
 bower_components
 build/
@@ -153,6 +157,7 @@ local_settings.py
 logs
 marimo/_lsp/
 marimo/_static/
+mnesia/
 node_modules/
 nosetests.xml
 npm-debug.log*
@@ -163,6 +168,8 @@ pids
 pip-delete-this-directory.txt
 pip-log.txt
 profile_default/
+rabbitmq-data/
+rabbitmq/
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 sdist/
 share/python-wheels/

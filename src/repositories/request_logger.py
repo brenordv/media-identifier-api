@@ -21,6 +21,7 @@ class RequestLogger(BaseRepository):
                     create_table_query = """
                                          CREATE TABLE IF NOT EXISTS request_history (
                                              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                                             endpoint TEXT NOT NULL,
                                              filename TEXT NOT NULL,
                                              requester_ip TEXT NOT NULL,
                                              result_status INTEGER NULL,
@@ -37,17 +38,17 @@ class RequestLogger(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
-    def log_start(self, filename: str, requester_ip: str):
+    def log_start(self, endpoint: str, filename: str, requester_ip: str):
         try:
             self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
                     insert_query = """
-                    INSERT INTO request_history (filename, requester_ip, received_at)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO request_history (endpoint, filename, requester_ip, received_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     RETURNING id;
                     """
-                    cursor.execute(insert_query, (filename, requester_ip))
+                    cursor.execute(insert_query, (endpoint, filename, requester_ip))
                     request_id = cursor.fetchone()[0]
                     conn.commit()
 
