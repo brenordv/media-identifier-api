@@ -23,6 +23,23 @@ request_logger = get_repository('request_logger')
 media_info_extender = MediaIdentifier()
 
 
+def _prepare_media_info_response(media_data, request_id):
+    if media_data is None or len(media_data) == 0:
+        status_code = status.HTTP_204_NO_CONTENT
+        request_logger.log_completed(request_id, status_code, None)
+        return Response(status_code=status_code)
+
+    status_code = status.HTTP_200_OK
+    request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
+
+    serializable_result = {
+        k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
+        for k, v in media_data.items()
+    }
+
+    return JSONResponse(content=serializable_result, status_code=status_code)
+
+
 @app.get("/api/guess")
 async def guess_filename(
         request: Request,
@@ -189,20 +206,3 @@ async def get_statistics(num_requests: int = Query(100, description="Number of r
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-def _prepare_media_info_response(media_data, request_id):
-    if media_data is None or len(media_data) == 0:
-        status_code = status.HTTP_204_NO_CONTENT
-        request_logger.log_completed(request_id, status_code, None)
-        return Response(status_code=status_code)
-
-    status_code = status.HTTP_200_OK
-    request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
-
-    serializable_result = {
-        k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
-        for k, v in media_data.items()
-    }
-
-    return JSONResponse(content=serializable_result, status_code=status_code)

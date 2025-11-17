@@ -55,7 +55,7 @@ def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwarg
         "season": season,
         "episode": episode,
         "used_openai": True
-    })
+    }), True
 
 
 def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):

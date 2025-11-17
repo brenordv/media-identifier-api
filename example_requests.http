@@ -41,13 +41,17 @@ GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/Final.Destination.MO
 ### The Incredible Hulk
 GET http://localhost:8000/api/guess?it=/mnt/mock-test-files/Marvel.Cinematic.Universe.Phase.01-04.1080p.BluRay.10Bit.X265.DD.5.1-Chivaman/The.Incredible.Hulk.2008.1080p.BluRay.10Bit.X265.DD.5.1-Chivaman.mkv
 
+### Stakeland II
+GET http://localhost:8000/api/guess?it=/watch/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD/Subs/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD.idx
+
+### Possessed (2000)
+GET http://localhost:8000/api/guess?it=/watch/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD/Subs/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD.idx
+
 ### Health Check
 GET http://localhost:8000/api/health
 
 ### Statistics
 GET http://localhost:8000/api/statistics
 
-### Test
-#GET http://localhost:8000/api/guess?it=/watch/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD/Subs/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD.idx
-#GET http://localhost:8000/api/guess?it=Possessed (2000)
+### Media Info
 GET http://localhost:8000/api/media-info?title=Possessed&year=2000&media_type=movie
