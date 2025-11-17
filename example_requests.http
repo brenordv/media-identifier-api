@@ -55,3 +55,6 @@ GET http://localhost:8000/api/statistics
 
 ### Media Info
 GET http://localhost:8000/api/media-info?title=Possessed&year=2000&media_type=movie
+
+### Fetch by id: 6166a98e-8b98-4142-8105-ea6704ebb3d6
+GET http://localhost:8000/api/media-info/6166a98e-8b98-4142-8105-ea6704ebb3d6

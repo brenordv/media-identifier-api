@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from datetime import datetime, UTC
+from uuid import UUID
 
 import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
@@ -20,6 +21,7 @@ app = FastAPI(
 )
 
 request_logger = get_repository('request_logger')
+cache_repository = get_repository('cache')
 media_info_extender = MediaIdentifier()
 
 
@@ -160,6 +162,47 @@ async def get_media_info(
         request_logger.log_completed(request_id, status_code, error_message=error_detail)
 
         raise HTTPException(status_code=status_code, detail=error_detail)
+
+
+@app.get("/api/media-info/{media_id}")
+async def get_media_info_by_id(
+        request: Request,
+        media_id: UUID,
+):
+    """
+    Retrieve media information directly from the cache using the media ID.
+
+    Args:
+        request: The FastAPI request object.
+        media_id: Unique identifier of the media in the cache.
+
+    Returns:
+        JSON object with the media information if found.
+
+    Raises:
+        404: If the media is not found in the cache.
+        500: If there's an error during execution.
+    """
+    client_ip = request.client.host
+    request_id = request_logger.log_start("/api/media-info/{media_id}", str(media_id), client_ip)
+
+    try:
+        set_request_id(request_id)
+        cached_media = cache_repository.get_cached(str(media_id), None, "id")
+    except Exception as exc:
+        error_detail = f"Error retrieving media by id: {str(exc)}"
+        traceback.print_exc()
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        request_logger.log_completed(request_id, status_code, error_message=error_detail)
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
+    if cached_media is None:
+        status_code = status.HTTP_404_NOT_FOUND
+        error_detail = "Media not found"
+        request_logger.log_completed(request_id, status_code, error_message=error_detail)
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
+    return _prepare_media_info_response(cached_media, request_id)
 
 
 @app.get("/api/health")
