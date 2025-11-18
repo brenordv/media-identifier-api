@@ -239,3 +239,6 @@ check it out! :D
 
 We also heavily rely on the [TMDb API](https://developer.themoviedb.org/reference/intro/getting-started). 
 It is hard to believe that their API have a free tier.
+
+## Notes
+- Used [gitignore](https://github.com/brenordv/rusted-toolbox/tree/master/crates/tool-gitignore) and [aiignore](https://github.com/brenordv/rusted-toolbox/tree/master/crates/tool-aiignore) tools to create the *ignore files.
