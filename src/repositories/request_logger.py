@@ -32,6 +32,14 @@ class RequestLogger(BaseRepository):
                                              elapsed_time INTERVAL GENERATED ALWAYS AS (responded_at - received_at) STORED
                                              );"""
                     cursor.execute(create_table_query)
+
+                    self._logger.debug("Creating indexes for request_history table")
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_request_history_received_at_desc
+                        ON request_history (received_at DESC);
+                        """
+                    )
                     conn.commit()
         except psycopg2.Error as e:
             error_message = f"Error creating the request logger table: {str(e)}"

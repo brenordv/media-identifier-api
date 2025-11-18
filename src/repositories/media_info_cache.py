@@ -60,6 +60,32 @@ class MediaInfoCache(BaseRepository):
                                              modified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              );"""
                     cursor.execute(create_table_query)
+
+                    self._logger.debug("Creating indexes for cached_media table")
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_searchable_reference_ci
+                        ON cached_media (LOWER(searchable_reference));
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_title_ci
+                        ON cached_media (LOWER(title));
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_series_season_episode
+                        ON cached_media (tmdb_series_id, season, episode);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_type_year
+                        ON cached_media (LOWER(media_type), year);
+                        """
+                    )
                     conn.commit()
         except psycopg2.Error as e:
             error_message = f"Error creating the cache table: {str(e)}"

@@ -31,6 +31,14 @@ class OpenAILogger(BaseRepository):
                                              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              );"""
                     cursor.execute(create_table_query)
+
+                    self._logger.debug("Creating indexes for openai_history table")
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_openai_history_request_id
+                        ON openai_history (request_id);
+                        """
+                    )
                     conn.commit()
         except psycopg2.Error as e:
             error_message = f"Error creating the OpenAI request logger table: {str(e)}"
