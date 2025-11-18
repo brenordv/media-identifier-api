@@ -1,7 +1,16 @@
 from simple_log_factory.log_factory import log_factory
 
-from src.media_identifiers.openai_identifier import identify_movie_title_with_open_ai, \
-    identify_series_title_with_open_ai, identify_series_season_episode_with_open_ai, identify_media_type_with_open_ai
+from src.media_identifiers.helpers import parse_season_episode_string
+from src.media_identifiers.media_type_helpers import (
+    is_media_type_valid,
+    is_movie,
+)
+from src.media_identifiers.openai_identifier import (
+    identify_movie_title_with_open_ai,
+    identify_series_title_with_open_ai,
+    identify_series_season_episode_with_open_ai,
+    identify_media_type_with_open_ai,
+)
 from src.models.media_info import merge_media_info
 
 _logger = log_factory("OpenAI Task", unique_handler_types=True)
@@ -37,13 +46,16 @@ def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwarg
         _logger.debug(f"[{log_tag}] No TMDb ID found in media data. Task failed.")
         return media_data, False
 
-    season, episode = _parse_season_episode(identify_series_season_episode_with_open_ai(file_path))
+    season, episode = parse_season_episode_string(
+        identify_series_season_episode_with_open_ai(file_path),
+        logger=_logger,
+    )
 
     return merge_media_info(media_data, {
         "season": season,
         "episode": episode,
         "used_openai": True
-    })
+    }), True
 
 
 def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
@@ -60,13 +72,13 @@ def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
 
     media_type = identify_media_type_with_open_ai(file_path)
 
-    if media_type is None or media_type not in ['movie', 'tv']:
+    if not is_media_type_valid(media_type):
         _logger.debug(f"[{log_tag}] No media type found for file: [{file_path}]. Skipping task.")
         return media_data, False
 
     _logger.debug(f"[{log_tag}] Media type identified as: {media_type}")
 
-    if media_type == 'movie':
+    if is_movie(media_type):
         title = identify_movie_title_with_open_ai(file_path)
     else:
         title = identify_series_title_with_open_ai(file_path)
@@ -76,28 +88,3 @@ def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
         "media_type": media_type,
         "used_openai": True
     }), True
-
-
-def _parse_season_episode(data):
-    parts = data.split(',')
-    if len(parts) != 2:
-        _logger.error(f"Invalid season/episode format: {data}")
-        return None, None
-
-    season_parts = parts[0].strip().split(':')
-
-    if len(season_parts) != 2 or not season_parts[1].isdigit():
-        _logger.error(f"Invalid season format: {season_parts}")
-        return None, None
-
-    season = int(season_parts[1])
-
-    episode_parts = parts[1].strip().split(':')
-
-    if len(episode_parts) != 2 or not episode_parts[1].isdigit():
-        _logger.error(f"Invalid episode format: {episode_parts}")
-        return None, None
-
-    episode = int(episode_parts[1])
-
-    return season, episode

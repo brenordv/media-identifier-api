@@ -3,6 +3,8 @@ from psycopg2.pool import SimpleConnectionPool
 from simple_log_factory.log_factory import log_factory
 
 from src.converters.create_searchable_reference import create_searchable_reference
+from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.repositories.base_repository import BaseRepository
 from src.utils import is_valid_year
 
@@ -58,6 +60,32 @@ class MediaInfoCache(BaseRepository):
                                              modified_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              );"""
                     cursor.execute(create_table_query)
+
+                    self._logger.debug("Creating indexes for cached_media table")
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_searchable_reference_ci
+                        ON cached_media (LOWER(searchable_reference));
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_title_ci
+                        ON cached_media (LOWER(title));
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_series_season_episode
+                        ON cached_media (tmdb_series_id, season, episode);
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_cached_media_type_year
+                        ON cached_media (LOWER(media_type), year);
+                        """
+                    )
                     conn.commit()
         except psycopg2.Error as e:
             error_message = f"Error creating the cache table: {str(e)}"
@@ -87,7 +115,7 @@ class MediaInfoCache(BaseRepository):
                 self._logger.debug("No object provided, returning None")
                 return None
 
-            media_type = obj.get('media_type')
+            media_type = normalize_media_type(obj.get('media_type'))
             title = obj.get('title')
             searchable_reference_from_title = create_searchable_reference(title)
             searchable_reference = obj.get('searchable_reference')
@@ -103,7 +131,7 @@ class MediaInfoCache(BaseRepository):
 
                     query_args = ()
 
-                    if media_type == 'tv':
+                    if media_type == TV:
                         episode_number = obj.get('episode')
                         season_number = obj.get('season')
 
@@ -119,7 +147,7 @@ class MediaInfoCache(BaseRepository):
                         else:
                             query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number)
                             cursor.execute(query, query_args)
-                    elif media_type == 'movie':
+                    elif media_type == MOVIE:
                         if is_valid_year(year):
                             query = f"{base_query} and year = %s"
                             query_args = (title, searchable_reference_from_title, searchable_reference, media_type, year)
@@ -153,8 +181,12 @@ class MediaInfoCache(BaseRepository):
                         query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s;"
                         cursor.execute(query, (search_term,))
                     else:
+                        normalized_media_type = normalize_media_type(media_type)
+                        if normalized_media_type is None:
+                            self._logger.debug("Media type provided for cache lookup is invalid.")
+                            return None
                         query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s AND media_type = %s;"
-                        cursor.execute(query, (search_term, media_type,))
+                        cursor.execute(query, (search_term, normalized_media_type,))
 
                     result = cursor.fetchone()
                     if result:
@@ -162,6 +194,46 @@ class MediaInfoCache(BaseRepository):
                     return None
         except psycopg2.Error as e:
             error_message = f"Error getting cached data: {str(e)}"
+            self._logger.error(error_message)
+            raise RuntimeError(error_message) from e
+
+    def get_cached_by_tmdb_id(self, tmdb_id: int):
+        try:
+            self._logger.debug(f"Getting cached media by TMDb ID: {tmdb_id}")
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT * FROM cached_media WHERE tmdb_id = %s;", (tmdb_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(zip([desc[0] for desc in cursor.description], result))
+                    return None
+        except psycopg2.Error as e:
+            error_message = f"Error getting cached data by TMDb ID: {str(e)}"
+            self._logger.error(error_message)
+            raise RuntimeError(error_message) from e
+
+    def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int):
+        try:
+            self._logger.debug(
+                f"Getting cached TV episode by Series ID: {tmdb_series_id}, Season: {season}, Episode: {episode}"
+            )
+            with self._get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT * FROM cached_media
+                        WHERE tmdb_series_id = %s
+                          AND season = %s
+                          AND episode = %s;
+                        """,
+                        (tmdb_series_id, season, episode),
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        return dict(zip([desc[0] for desc in cursor.description], result))
+                    return None
+        except psycopg2.Error as e:
+            error_message = f"Error getting cached TV episode: {str(e)}"
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 

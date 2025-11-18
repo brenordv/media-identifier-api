@@ -1,5 +1,7 @@
 from simple_log_factory.log_factory import log_factory
 
+from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.media_identifiers.tmdb_identifier import identify_media_with_tmdb_movie_search, request_tmdb_movie_details, \
     request_tmdb_external_ids, identify_media_with_tmdb_series_search, request_tmdb_series_details, \
     request_tmdb_series_episode_details
@@ -50,7 +52,7 @@ def tmdb_get_movie_external_ids(media_data: dict, **kwargs):
         _logger.debug(f"[{log_tag}] Can't run this step if it came from failure. Skipping task.")
         return media_data, False
 
-    return _tmdb_get_media_external_ids(media_data, **kwargs, media_type="movie")
+    return _tmdb_get_media_external_ids(media_data, **kwargs, media_type=MOVIE)
 
 
 def tmdb_identify_series_by_title_and_id(media_data: dict, **kwargs):
@@ -95,7 +97,7 @@ def tmdb_get_series_external_ids(media_data: dict, **kwargs):
         _logger.debug(f"[{log_tag}] Can't run this step if it came from failure. Skipping task.")
         return media_data, False
 
-    external_ids, success = _tmdb_get_media_external_ids(media_data, **kwargs, media_type='tv')
+    external_ids, success = _tmdb_get_media_external_ids(media_data, **kwargs, media_type=TV)
 
     if not success:
         _logger.error(f"[{log_tag}] Failed to get external IDs for media: {media_data}")
@@ -149,7 +151,7 @@ def _tmdb_get_media_external_ids(media_data: dict, **kwargs):
         _logger.debug(f"[{log_tag}] No TMDb ID found in media data. Task failed.")
         return media_data, False
 
-    media_type = media_data.get('media_type')
+    media_type = normalize_media_type(media_data.get('media_type'))
 
     if media_type is None:
         _logger.debug(f"[{log_tag}] No media type found in media data. Task failed.")

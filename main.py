@@ -1,10 +1,14 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+from datetime import datetime, UTC
+from uuid import UUID
+
 import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
+from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
 from src.utils import set_request_id
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.repositories.repository_factory import get_repository
@@ -17,7 +21,25 @@ app = FastAPI(
 )
 
 request_logger = get_repository('request_logger')
+cache_repository = get_repository('cache')
 media_info_extender = MediaIdentifier()
+
+
+def _prepare_media_info_response(media_data, request_id):
+    if media_data is None or len(media_data) == 0:
+        status_code = status.HTTP_204_NO_CONTENT
+        request_logger.log_completed(request_id, status_code, None)
+        return Response(status_code=status_code)
+
+    status_code = status.HTTP_200_OK
+    request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
+
+    serializable_result = {
+        k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
+        for k, v in media_data.items()
+    }
+
+    return JSONResponse(content=serializable_result, status_code=status_code)
 
 
 @app.get("/api/guess")
@@ -26,13 +48,13 @@ async def guess_filename(
         it: str = Query(None, description="Filename to analyze")):
     """
     Analyze a filename using guessit and return the extracted information.
-    
+
     Args:
         request: The FastAPI request object
         it: The filename to analyze
-        
+
     Returns:
-        JSON object with the guessit analysis result
+        JSON object with the media information
         
     Raises:
         400: If the filename is not provided
@@ -45,26 +67,14 @@ async def guess_filename(
     # Get the client's IP address
     client_ip = request.client.host
 
-    request_id = request_logger.log_start(it, client_ip)
+    request_id = request_logger.log_start("/api/guess", it, client_ip)
 
     try:
         set_request_id(request_id)
 
-        media_data = media_info_extender.identify_media(it)
+        media_data = media_info_extender.get_media_info_by_filename(it)
 
-        if media_data is None or len(media_data) == 0:
-            status_code = status.HTTP_204_NO_CONTENT
-            request_logger.log_completed(request_id, status_code, None)
-            return Response(status_code=status_code)
-
-        status_code = 200
-        request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
-
-        # Convert result to a serializable format
-        serializable_result = {k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v 
-                              for k, v in media_data.items()}
-
-        return JSONResponse(content=serializable_result, status_code=status_code)
+        return _prepare_media_info_response(media_data, request_id)
     except Exception as e:
         # Capture the error and return a 500 response
         error_detail = f"Error processing filename: {str(e)}"
@@ -74,6 +84,126 @@ async def guess_filename(
         request_logger.log_completed(request_id, status_code, error_message=error_detail)
         
         raise HTTPException(status_code=status_code, detail=error_detail)
+
+@app.get("/api/media-info")
+async def get_media_info(
+        request: Request,
+        media_type: str = Query(None, description="Type of media (movie, series, episode)"),
+        year: int = Query(None, description="Release year of the media"),
+        title: str = Query(None, description="Title of the media"),
+        season: int = Query(None, description="Season number of the media"),
+        episode: int = Query(None, description="Episode number of the media"),
+):
+    """
+    Similar to the `/api/media-info` endpoint and will return the same information but will skip the identification step.
+    This endpoint assumes you know the media you want info about.
+
+    Args:
+        request: The FastAPI request object.
+        media_type: Type of media. (Required one: movie, tv)
+        year: Release year of the media. (Required)
+        title: Title of the media. (Required)
+        season: Season number of the media. (Required if media_type is tv)
+        episode: Episode number of the media. (Required if media_type is tv)
+
+    Returns:
+        JSON object with the media information
+
+    Raises:
+        400: If required information is not provided.
+        500: If there's an error during execution
+    """
+    # Check if required data is provided
+    if not media_type or not year or not title:
+        raise HTTPException(status_code=400, detail="Required information is missing. You must provide media_type, year, and title.")
+
+    normalized_media_type = normalize_media_type(media_type)
+
+    if normalized_media_type is None:
+        raise HTTPException(status_code=400, detail="Invalid media_type. Supported types are 'movie' and 'tv'.")
+
+    if is_tv(normalized_media_type):
+        if not season:
+            raise HTTPException(status_code=400, detail="Season number is required for TV shows.")
+
+        if not episode:
+            raise HTTPException(status_code=400, detail="Episode number is required for TV shows.")
+
+    if not isinstance(year, int):
+        raise HTTPException(status_code=400, detail="Year must be an integer.")
+
+    current_year = datetime.now(UTC).year
+    if year < 1900 or year > current_year:
+        raise HTTPException(status_code=400, detail=f"Year must be between 1900 and the current year ({current_year}).")
+
+    # Get the client's IP address
+    client_ip = request.client.host
+
+    request_id = request_logger.log_start("/api/media-info", request.url.query, client_ip)
+
+    try:
+        set_request_id(request_id)
+
+        media_data = media_info_extender.get_media_info(
+            media_type=normalized_media_type,
+            year=year,
+            title=title,
+            season=season,
+            episode=episode,
+        )
+
+        return _prepare_media_info_response(media_data, request_id)
+    except Exception as e:
+        # Capture the error and return a 500 response
+        error_detail = f"Error getting media info: {str(e)}"
+        traceback.print_exc()  # Print traceback for debugging
+        status_code = 500
+
+        request_logger.log_completed(request_id, status_code, error_message=error_detail)
+
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
+
+@app.get("/api/media-info/{media_id}")
+async def get_media_info_by_id(
+        request: Request,
+        media_id: UUID,
+):
+    """
+    Retrieve media information directly from the cache using the media ID.
+
+    Args:
+        request: The FastAPI request object.
+        media_id: Unique identifier of the media in the cache.
+
+    Returns:
+        JSON object with the media information if found.
+
+    Raises:
+        404: If the media is not found in the cache.
+        500: If there's an error during execution.
+    """
+    client_ip = request.client.host
+    request_id = request_logger.log_start("/api/media-info/{media_id}", str(media_id), client_ip)
+
+    try:
+        set_request_id(request_id)
+        cached_media = cache_repository.get_cached(str(media_id), None, "id")
+    except Exception as exc:
+        error_detail = f"Error retrieving media by id: {str(exc)}"
+        traceback.print_exc()
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+        request_logger.log_completed(request_id, status_code, error_message=error_detail)
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
+    if cached_media is None:
+        status_code = status.HTTP_404_NOT_FOUND
+        error_detail = "Media not found"
+        request_logger.log_completed(request_id, status_code, error_message=error_detail)
+        raise HTTPException(status_code=status_code, detail=error_detail)
+
+    return _prepare_media_info_response(cached_media, request_id)
+
 
 @app.get("/api/health")
 async def health_check():

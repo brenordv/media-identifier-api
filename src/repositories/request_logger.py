@@ -21,6 +21,7 @@ class RequestLogger(BaseRepository):
                     create_table_query = """
                                          CREATE TABLE IF NOT EXISTS request_history (
                                              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                                             endpoint TEXT NOT NULL,
                                              filename TEXT NOT NULL,
                                              requester_ip TEXT NOT NULL,
                                              result_status INTEGER NULL,
@@ -31,23 +32,31 @@ class RequestLogger(BaseRepository):
                                              elapsed_time INTERVAL GENERATED ALWAYS AS (responded_at - received_at) STORED
                                              );"""
                     cursor.execute(create_table_query)
+
+                    self._logger.debug("Creating indexes for request_history table")
+                    cursor.execute(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_request_history_received_at_desc
+                        ON request_history (received_at DESC);
+                        """
+                    )
                     conn.commit()
         except psycopg2.Error as e:
             error_message = f"Error creating the request logger table: {str(e)}"
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
-    def log_start(self, filename: str, requester_ip: str):
+    def log_start(self, endpoint: str, filename: str, requester_ip: str):
         try:
             self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
                     insert_query = """
-                    INSERT INTO request_history (filename, requester_ip, received_at)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO request_history (endpoint, filename, requester_ip, received_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     RETURNING id;
                     """
-                    cursor.execute(insert_query, (filename, requester_ip))
+                    cursor.execute(insert_query, (endpoint, filename, requester_ip))
                     request_id = cursor.fetchone()[0]
                     conn.commit()
 
