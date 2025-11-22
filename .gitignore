@@ -1,3 +1,4 @@
+temp_example_requests.http
 !.env.example
 !.yarn/patches
 !.yarn/plugins

@@ -1,4 +1,9 @@
+from pathlib import Path
+
 from dotenv import load_dotenv
+
+from src.media_identifiers.pipeline.base import PipelineExecutionError
+
 load_dotenv()
 
 from datetime import datetime, UTC
@@ -42,6 +47,18 @@ def _prepare_media_info_response(media_data, request_id):
     return JSONResponse(content=serializable_result, status_code=status_code)
 
 
+def _process_guess_filename(it: str, is_retrying: bool = False):
+    try:
+        if is_retrying:
+            it_file = Path(it).name
+            return media_info_extender.get_media_info_by_filename(it_file)
+
+        return media_info_extender.get_media_info_by_filename(it)
+    except PipelineExecutionError as e:
+        if is_retrying:
+            raise
+        return _process_guess_filename(it, True)
+
 @app.get("/api/guess")
 async def guess_filename(
         request: Request,
@@ -72,7 +89,7 @@ async def guess_filename(
     try:
         set_request_id(request_id)
 
-        media_data = media_info_extender.get_media_info_by_filename(it)
+        media_data = _process_guess_filename(it)
 
         return _prepare_media_info_response(media_data, request_id)
     except Exception as e:
@@ -84,6 +101,7 @@ async def guess_filename(
         request_logger.log_completed(request_id, status_code, error_message=error_detail)
         
         raise HTTPException(status_code=status_code, detail=error_detail)
+
 
 @app.get("/api/media-info")
 async def get_media_info(
