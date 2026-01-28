@@ -31,6 +31,12 @@ _SEGMENT_NOISE_TOKENS = {
     "screenshots",
     "cover",
     "covers",
+    "completed",
+    "complete",
+    "downloads",
+    "download",
+    "incoming",
+    "incomplete",
 }
 _EXTENSION_TOKENS = {
     "mkv",
@@ -50,6 +56,7 @@ _EXTENSION_TOKENS = {
     "r02",
     "sfv",
     "md5",
+    "srr",
     "idx",
     "srt",
     "sub",
@@ -137,7 +144,8 @@ _SOURCE_NOISE_TOKENS = (
     | _EXTENSION_TOKENS
     | {"tmp", "watch", "mnt", "mock", "files", "file", "disc", "disk", "part"}
 )
-_LOW_INFORMATION_EXTENSIONS = {"rar", "zip", "7z", "r00", "r01", "r02", "sfv", "md5", "txt"}
+_LOW_INFORMATION_EXTENSIONS = {"rar", "zip", "7z", "r00", "r01", "r02", "sfv", "md5", "srr", "txt"}
+_MAX_FALLBACK_SEGMENTS = 2
 _VALID_MEDIA_TYPES = {"movie", "episode", "tv"}
 _TOKEN_SPLIT_RE = re.compile(r"[^\w]+")
 _TRAILING_YEAR_PATTERN = re.compile(
@@ -287,7 +295,16 @@ def _build_fallback_input(parts: List[str]) -> str:
     if not parts:
         return ""
 
-    normalized_parts = [part.replace("_", " ") for part in parts if part]
+    meaningful_parts = []
+    for part in parts:
+        normalized_part = _normalize_segment(part)
+        if not normalized_part:
+            continue
+        if _segment_has_meaningful_tokens(normalized_part):
+            meaningful_parts.append(normalized_part)
+
+    candidate_parts = meaningful_parts[-_MAX_FALLBACK_SEGMENTS:] if meaningful_parts else parts[-_MAX_FALLBACK_SEGMENTS:]
+    normalized_parts = [part.replace("_", " ") for part in candidate_parts if part]
     normalized = " ".join(normalized_parts)
     normalized = normalized.replace("-", " ")
     normalized = re.sub(r"\s+", " ", normalized)
