@@ -84,6 +84,22 @@ _EXTENSION_TOKENS = {
     "ogg",
     "m4a",
 }
+_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
+_VISUAL_ASSET_TOKENS = {
+    "art",
+    "artwork",
+    "cover",
+    "covers",
+    "poster",
+    "posters",
+    "proof",
+    "sample",
+    "samples",
+    "screen",
+    "screens",
+    "screenshot",
+    "screenshots",
+}
 _GENERIC_TITLE_TOKENS = {
     "the",
     "and",
@@ -224,17 +240,25 @@ def _generate_guessit_inputs(file_path: str) -> List[str]:
     candidates: List[str] = []
     seen: set[str] = set()
 
-    for segment in reversed(cleaned_parts):
-        normalized_segment = _normalize_segment(segment)
-        if not normalized_segment:
-            continue
+    def build_candidates(skip_visual_assets: bool) -> None:
+        for segment in reversed(cleaned_parts):
+            normalized_segment = _normalize_segment(segment)
+            if not normalized_segment:
+                continue
 
-        if not _segment_has_meaningful_tokens(normalized_segment):
-            continue
+            if skip_visual_assets and _segment_is_visual_asset(normalized_segment):
+                continue
 
-        if normalized_segment not in seen:
-            candidates.append(normalized_segment)
-            seen.add(normalized_segment)
+            if not _segment_has_meaningful_tokens(normalized_segment):
+                continue
+
+            if normalized_segment not in seen:
+                candidates.append(normalized_segment)
+                seen.add(normalized_segment)
+
+    build_candidates(skip_visual_assets=True)
+    if not candidates:
+        build_candidates(skip_visual_assets=False)
 
     fallback = _build_fallback_input(cleaned_parts)
     if fallback and fallback not in seen:
@@ -309,6 +333,8 @@ def _build_fallback_input(parts: List[str]) -> str:
         normalized_part = _normalize_segment(part)
         if not normalized_part:
             continue
+        if _segment_is_visual_asset(normalized_part):
+            continue
         if _segment_has_meaningful_tokens(normalized_part):
             meaningful_parts.append(normalized_part)
 
@@ -319,6 +345,15 @@ def _build_fallback_input(parts: List[str]) -> str:
     normalized = re.sub(r"\s+", " ", normalized)
 
     return normalized.strip()
+
+
+def _segment_is_visual_asset(segment: str) -> bool:
+    base, extension = _split_basename_and_extension(segment)
+    if not extension or extension not in _IMAGE_EXTENSIONS:
+        return False
+
+    tokens = _tokenize(base)
+    return any(token.lower() in _VISUAL_ASSET_TOKENS for token in tokens)
 
 
 def _normalize_guessit_metadata(metadata: dict) -> dict:

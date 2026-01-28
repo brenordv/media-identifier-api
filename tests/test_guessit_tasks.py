@@ -44,3 +44,23 @@ def test_build_fallback_input_skips_data_folder():
     assert "it" in fallback_lower
     assert "chapter" in fallback_lower
     assert "one" in fallback_lower
+
+
+def test_build_fallback_input_skips_proof_image_segment():
+    parts = [
+        "mnt",
+        "skystorage",
+        "apps",
+        "transmission-vpn",
+        "data",
+        "completed",
+        "Pulse.3.2008.1080p.BluRay.x264-GUACAMOLE",
+        "Proof",
+        "gua-pulse3.2008-1080p-proof.jpg",
+    ]
+
+    fallback = _build_fallback_input(parts)
+    fallback_lower = fallback.lower()
+
+    assert "proof" not in fallback_lower
+    assert "pulse.3.2008" in fallback_lower
