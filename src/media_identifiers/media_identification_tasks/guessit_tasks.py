@@ -9,7 +9,16 @@ from src.models.media_info import MediaInfoBuilder
 
 _logger = log_factory("MediaIdentifier", unique_handler_types=True)
 
-_PATH_SEGMENT_FILTER = {"tmp", "watch", "mnt", "mock-test-files"}
+_PATH_SEGMENT_FILTER = {
+    "tmp",
+    "watch",
+    "mnt",
+    "mock-test-files",
+    "data",
+    "apps",
+    "skystorage",
+    "transmission-vpn",
+}
 _SEGMENT_NOISE_TOKENS = {
     "proof",
     "poster",
