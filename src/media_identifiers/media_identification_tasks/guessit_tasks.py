@@ -241,12 +241,15 @@ def _generate_guessit_inputs(file_path: str) -> List[str]:
     seen: set[str] = set()
 
     def build_candidates(skip_visual_assets: bool) -> None:
-        for segment in reversed(cleaned_parts):
+        for index, segment in enumerate(reversed(cleaned_parts)):
             normalized_segment = _normalize_segment(segment)
             if not normalized_segment:
                 continue
 
             if skip_visual_assets and _segment_is_visual_asset(normalized_segment):
+                continue
+
+            if _segment_is_weak_file_candidate(normalized_segment, cleaned_parts, index):
                 continue
 
             if not _segment_has_meaningful_tokens(normalized_segment):
@@ -329,14 +332,18 @@ def _build_fallback_input(parts: List[str]) -> str:
         return ""
 
     meaningful_parts = []
+    last_meaningful_count = 0
     for part in parts:
         normalized_part = _normalize_segment(part)
         if not normalized_part:
             continue
         if _segment_is_visual_asset(normalized_part):
             continue
+        if _segment_is_weak_file_segment(normalized_part, last_meaningful_count):
+            continue
         if _segment_has_meaningful_tokens(normalized_part):
             meaningful_parts.append(normalized_part)
+            last_meaningful_count = _count_meaningful_tokens(normalized_part)
 
     candidate_parts = meaningful_parts[-_MAX_FALLBACK_SEGMENTS:] if meaningful_parts else parts[-_MAX_FALLBACK_SEGMENTS:]
     normalized_parts = [part.replace("_", " ") for part in candidate_parts if part]
@@ -354,6 +361,48 @@ def _segment_is_visual_asset(segment: str) -> bool:
 
     tokens = _tokenize(base)
     return any(token.lower() in _VISUAL_ASSET_TOKENS for token in tokens)
+
+
+def _segment_is_weak_file_candidate(segment: str, parts: List[str], reversed_index: int) -> bool:
+    if not _segment_has_media_extension(segment):
+        return False
+
+    parent_index = len(parts) - 2 - reversed_index
+    if parent_index < 0:
+        return False
+
+    parent_segment = _normalize_segment(parts[parent_index])
+    if not parent_segment:
+        return False
+
+    file_tokens = _count_meaningful_tokens(segment)
+    parent_tokens = _count_meaningful_tokens(parent_segment)
+    if parent_tokens == 0:
+        return False
+
+    return file_tokens < parent_tokens
+
+
+def _segment_is_weak_file_segment(segment: str, previous_meaningful_count: int) -> bool:
+    if not _segment_has_media_extension(segment):
+        return False
+
+    file_tokens = _count_meaningful_tokens(segment)
+    if previous_meaningful_count == 0:
+        return False
+
+    return file_tokens < previous_meaningful_count
+
+
+def _segment_has_media_extension(segment: str) -> bool:
+    _, extension = _split_basename_and_extension(segment)
+    return extension in _EXTENSION_TOKENS if extension else False
+
+
+def _count_meaningful_tokens(segment: str) -> int:
+    base, _ = _split_basename_and_extension(segment)
+    tokens = _tokenize(base)
+    return sum(1 for token in tokens if _is_meaningful_segment_token(token))
 
 
 def _normalize_guessit_metadata(metadata: dict) -> dict:
