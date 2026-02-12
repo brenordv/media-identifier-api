@@ -2,12 +2,12 @@ import re
 from typing import List, Optional, Tuple
 
 from guessit import guessit
-from simple_log_factory.log_factory import log_factory
 
 from src.media_identifiers.helpers import apply_basic_media_attributes
 from src.models.media_info import MediaInfoBuilder
+from src.utils import get_otel_log_handler
 
-_logger = log_factory("MediaIdentifier", unique_handler_types=True)
+_logger = get_otel_log_handler("MediaIdentifier")
 
 _PATH_SEGMENT_FILTER = {
     "tmp",

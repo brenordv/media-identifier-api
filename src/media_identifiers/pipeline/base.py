@@ -2,10 +2,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence
 
-from simple_log_factory.log_factory import log_factory
-
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 from src.models.media_info import is_media_type_valid, merge_media_info
+from src.utils import get_otel_log_handler
 
 
 class StepStatus(str, Enum):
@@ -58,7 +57,7 @@ class PipelineContext:
     ):
         self.request = request
         self.cache_repository = cache_repository
-        self.logger = logger or log_factory("Pipeline", unique_handler_types=True)
+        self.logger = logger or get_otel_log_handler("Pipeline")
         self.file_path = request.file_path
         self.media: Optional[dict] = request.seed_media_info()
         self.cached_result: Optional[dict] = None
@@ -108,7 +107,7 @@ class PipelineHandler:
 class PipelineController:
     def __init__(self, handlers: Sequence[PipelineHandler], logger=None):
         self.handlers = handlers
-        self.logger = logger or log_factory("PipelineController", unique_handler_types=True)
+        self.logger = logger or get_otel_log_handler("PipelineController")
 
     def run(self, context: PipelineContext) -> PipelineResult:
         for handler in self.handlers:

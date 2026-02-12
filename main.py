@@ -1,9 +1,6 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
-
-from src.media_identifiers.pipeline.base import PipelineExecutionError
-
 load_dotenv()
 
 from datetime import datetime, UTC
@@ -13,8 +10,9 @@ import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 
+from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
-from src.utils import set_request_id
+from src.utils import set_request_id, get_otel_log_handler
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.repositories.repository_factory import get_repository
 
@@ -25,6 +23,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+logger = get_otel_log_handler("API")
 request_logger = get_repository('request_logger')
 cache_repository = get_repository('cache')
 media_info_extender = MediaIdentifier()
@@ -60,6 +59,7 @@ def _process_guess_filename(it: str, is_retrying: bool = False):
         return _process_guess_filename(it, True)
 
 @app.get("/api/guess")
+@logger.trace("/api/guess")
 async def guess_filename(
         request: Request,
         it: str = Query(None, description="Filename to analyze")):
@@ -104,6 +104,7 @@ async def guess_filename(
 
 
 @app.get("/api/media-info")
+@logger.trace("/api/media-info")
 async def get_media_info(
         request: Request,
         media_type: str = Query(None, description="Type of media (movie, series, episode)"),
@@ -183,6 +184,7 @@ async def get_media_info(
 
 
 @app.get("/api/media-info/{media_id}")
+@logger.trace("/api/media-info/{media_id}")
 async def get_media_info_by_id(
         request: Request,
         media_id: UUID,
@@ -224,6 +226,7 @@ async def get_media_info_by_id(
 
 
 @app.get("/api/health")
+@logger.trace("/api/health")
 async def health_check():
     """
     Health check endpoint that verifies guessit is working correctly.
@@ -242,7 +245,9 @@ async def health_check():
         traceback.print_exc()  # Print traceback for debugging
         return JSONResponse(content={"message": "broken", "error": error_detail}, status_code=500)
 
+
 @app.get("/api/statistics")
+@logger.trace("/api/statistics")
 async def get_statistics(num_requests: int = Query(100, description="Number of recent requests to return")):
     """
     Get statistics about the requests made to the /api/guess endpoint.
@@ -264,6 +269,15 @@ async def get_statistics(num_requests: int = Query(100, description="Number of r
         traceback.print_exc()  # Print traceback for debugging
         raise HTTPException(status_code=500, detail=error_detail)
 
+
 if __name__ == "__main__":
+    # Flush buffered OTEL log records before starting uvicorn.
+    # On Windows the BatchLogRecordProcessor's background HTTP export
+    # can deadlock with ProactorEventLoop initialisation if both run
+    # concurrently.  Flushing here drains the queue so the worker
+    # thread has nothing to export during the critical startup window.
+    for h in logger.logger.handlers:
+        h.flush()
+
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

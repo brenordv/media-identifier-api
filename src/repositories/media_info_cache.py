@@ -1,18 +1,20 @@
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
-from simple_log_factory.log_factory import log_factory
 
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.repositories.base_repository import BaseRepository
-from src.utils import is_valid_year
+from src.utils import is_valid_year, get_otel_log_handler
 
 
 class MediaInfoCache(BaseRepository):
-    def __init__(self, conn_pool: SimpleConnectionPool):
-        super().__init__(conn_pool, log_factory("Cache", unique_handler_types=True))
-        self._ensure_table_exists()
+    def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
+        super().__init__(conn_pool, get_otel_log_handler("Cache"))
+
+        if not skip_database_initialization:
+            self._ensure_table_exists()
+
         self._required_columns = [
             'searchable_reference',
             'tmdb_id',

@@ -1,13 +1,12 @@
-from simple_log_factory.log_factory import log_factory
-
 from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.media_identifiers.tmdb_identifier import identify_media_with_tmdb_movie_search, request_tmdb_movie_details, \
     request_tmdb_external_ids, identify_media_with_tmdb_series_search, request_tmdb_series_details, \
     request_tmdb_series_episode_details
 from src.models.media_info import merge_media_info
+from src.utils import get_otel_log_handler
 
-_logger = log_factory("TMDB Task", unique_handler_types=True)
+_logger = get_otel_log_handler("TMDB Task")
 
 
 def tmdb_identify_movie_by_id(media_data: dict, **kwargs):

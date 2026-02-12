@@ -2,7 +2,6 @@ import inspect
 import os
 from typing import Optional, Union
 from openai import OpenAI, OpenAIError, RateLimitError
-from simple_log_factory.log_factory import log_factory
 
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
 from src.media_identifiers.ai_functions.extract_media_type_ai_function import extract_media_type_from_filename
@@ -14,9 +13,10 @@ from src.media_identifiers.media_type_helpers import (
 )
 from src.models.media_info import MediaInfoBuilder
 from src.repositories.repository_factory import get_repository
+from src.utils import get_otel_log_handler
 
 _open_ai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-_logger = log_factory("MediaIdentifier", unique_handler_types=True)
+_logger = get_otel_log_handler("MediaIdentifier")
 _openai_request_logger = None
 _open_ai_client = None
 

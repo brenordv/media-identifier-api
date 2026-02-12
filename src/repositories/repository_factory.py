@@ -8,7 +8,7 @@ from src.repositories.openai_logger import OpenAILogger
 from src.repositories.request_logger import RequestLogger
 
 _db_pool: Optional[SimpleConnectionPool] = None
-
+_repos_initialized = set()
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
@@ -45,14 +45,16 @@ def _get_pool() -> SimpleConnectionPool:
 def get_repository(repo_name: str):
     pool = _get_pool()
     repo_name = repo_name.lower()
+    skip_database_initialization = repo_name in _repos_initialized
+    _repos_initialized.add(repo_name)
 
     if repo_name == "cache":
-        return MediaInfoCache(pool)
+        return MediaInfoCache(pool, skip_database_initialization=skip_database_initialization)
 
     if repo_name == "request_logger":
-        return RequestLogger(pool)
+        return RequestLogger(pool, skip_database_initialization=skip_database_initialization)
 
     if repo_name == "openai_logger":
-        return OpenAILogger(pool)
+        return OpenAILogger(pool, skip_database_initialization=skip_database_initialization)
 
     raise ValueError(f"Repository '{repo_name}' is not recognized or not implemented.")

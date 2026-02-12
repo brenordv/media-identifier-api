@@ -1,17 +1,16 @@
 from typing import Optional
 
-from simple_log_factory.log_factory import log_factory
-
 from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_tv
 from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
 from src.models.media_identification_request import MediaIdentificationRequest
 from src.repositories.repository_factory import get_repository
+from src.utils import get_otel_log_handler
 
 
 class MediaIdentifier:
     def __init__(self):
         self._cache = get_repository("cache")
-        self._logger = log_factory("MediaIdentifier", unique_handler_types=True)
+        self._logger = get_otel_log_handler("MediaIdentifier")
 
     def identify(self, request: MediaIdentificationRequest) -> Optional[dict]:
         try:

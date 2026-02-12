@@ -1,11 +1,10 @@
-from logging import Logger
 from contextlib import contextmanager
 
 from psycopg2.pool import SimpleConnectionPool
 
 
 class BaseRepository:
-    def __init__(self, conn_pool: SimpleConnectionPool, logger: Logger):
+    def __init__(self, conn_pool: SimpleConnectionPool, logger):
         self._conn_pool = conn_pool
         self._logger = logger
 

@@ -1,14 +1,15 @@
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
-from simple_log_factory.log_factory import log_factory
 
 from src.repositories.base_repository import BaseRepository
+from src.utils import get_otel_log_handler
 
 
 class RequestLogger(BaseRepository):
-    def __init__(self, conn_pool: SimpleConnectionPool):
-        super().__init__(conn_pool, log_factory("RequestLogger", unique_handler_types=True))
-        self._ensure_table_exists()
+    def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
+        super().__init__(conn_pool, get_otel_log_handler("RequestLogger"))
+        if not skip_database_initialization:
+            self._ensure_table_exists()
 
     def _ensure_table_exists(self):
         try:

@@ -1,5 +1,3 @@
-from simple_log_factory.log_factory import log_factory
-
 from src.media_identifiers.helpers import parse_season_episode_string
 from src.media_identifiers.media_type_helpers import (
     is_media_type_valid,
@@ -12,8 +10,9 @@ from src.media_identifiers.openai_identifier import (
     identify_media_type_with_open_ai,
 )
 from src.models.media_info import merge_media_info
+from src.utils import get_otel_log_handler
 
-_logger = log_factory("OpenAI Task", unique_handler_types=True)
+_logger = get_otel_log_handler("OpenAI Task")
 
 def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwargs):
     """

@@ -3,15 +3,14 @@ import random
 import time
 from typing import Dict, Any, Optional, Union
 import requests
-from simple_log_factory.log_factory import log_factory
 
 from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaInfoBuilder
-from src.utils import is_valid_year
+from src.utils import is_valid_year, get_otel_log_handler
 
 _tmdb_api_key: Union[str, None] = None
-_logger = log_factory("MediaIdentifier", unique_handler_types=True)
+_logger = get_otel_log_handler("MediaIdentifier")
 
 
 def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:

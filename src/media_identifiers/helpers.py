@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-from simple_log_factory.log_factory import log_factory
-
 from src.models.media_info import MediaInfoBuilder
+from src.utils import get_otel_log_handler
 
-_logger = log_factory("MediaIdentifierHelpers", unique_handler_types=True)
+_logger = get_otel_log_handler("MediaIdentifierHelpers")
 
 
 def apply_basic_media_attributes(
