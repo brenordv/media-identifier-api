@@ -179,6 +179,7 @@ _TRAILING_YEAR_PATTERN = re.compile(
 )
 
 
+@_logger.trace("identify_media_with_guess_it")
 def identify_media_with_guess_it(file_path: str) -> Optional[dict]:
     try:
         _logger.debug(f"Identifying media file: {file_path}")

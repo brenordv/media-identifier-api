@@ -1,3 +1,4 @@
+from src.utils import get_otel_log_handler
 from src.media_identifiers.media_identification_tasks.guessit_tasks import identify_media_with_guess_it
 from src.media_identifiers.media_identification_tasks.openai_tasks import (
     openai_identify_series_season_and_episode_by_title,
@@ -19,6 +20,9 @@ from src.media_identifiers.media_type_helpers import (
 from src.models.media_identification_request import RequestMode
 
 
+_logger = get_otel_log_handler("PipelineHandlers")
+
+
 class CacheLookupHandler(PipelineHandler):
     def __init__(self, label: str = "cache_lookup"):
         self.label = label
@@ -35,6 +39,7 @@ class CacheLookupHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("CacheLookupHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         cached = context.cache_repository.get_cached_by_obj(context.media)
         if cached:
@@ -58,6 +63,7 @@ class GuessItIdentificationHandler(PipelineHandler):
         used_guessit = context.media.get("used_guessit") if context.media else False
         return not used_guessit
 
+    @_logger.trace("GuessItIdentificationHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         guessit_result = identify_media_with_guess_it(context.file_path)
         if not guessit_result:
@@ -83,6 +89,7 @@ class OpenAIBasicIdentificationHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("OpenAIBasicIdentificationHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = openai_run_basic_identification_by_filename(
             context.media,
@@ -111,6 +118,7 @@ class OpenAISeriesSeasonEpisodeHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("OpenAISeriesSeasonEpisodeHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = openai_identify_series_season_and_episode_by_title(
             context.media,
@@ -137,6 +145,7 @@ class TMDBIdentifyMovieHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("TMDBIdentifyMovieHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = tmdb_identify_movie_by_id(context.media)
         if not success or media_data is None:
@@ -161,6 +170,7 @@ class TMDBMovieExternalIdsHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("TMDBMovieExternalIdsHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = tmdb_get_movie_external_ids(context.media, success=True)
         if not success or media_data is None:
@@ -184,6 +194,7 @@ class TMDBIdentifySeriesHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("TMDBIdentifySeriesHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = tmdb_identify_series_by_title_and_id(context.media)
         if not success or media_data is None:
@@ -208,6 +219,7 @@ class TMDBSeriesExternalIdsHandler(PipelineHandler):
             return False
         return True
 
+    @_logger.trace("TMDBSeriesExternalIdsHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = tmdb_get_series_external_ids(context.media, success=True)
         if not success or media_data is None:
@@ -234,6 +246,7 @@ class TMDBEpisodeDetailsHandler(PipelineHandler):
         tmdb_series_id = context.media.get("tmdb_series_id")
         return tmdb_series_id is not None and season is not None and episode is not None
 
+    @_logger.trace("TMDBEpisodeDetailsHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
         media_data, success = tmdb_get_episode_details(context.media, success=True)
         if not success or media_data is None:

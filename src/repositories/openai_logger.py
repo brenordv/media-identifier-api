@@ -5,9 +5,12 @@ from src.repositories.base_repository import BaseRepository
 from src.utils import get_request_id, get_otel_log_handler
 
 
+_logger = get_otel_log_handler("OpenAILogger")
+
+
 class OpenAILogger(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
-        super().__init__(conn_pool, get_otel_log_handler("OpenAILogger"))
+        super().__init__(conn_pool, _logger)
         if not skip_database_initialization:
             self._ensure_table_exists()
 
@@ -45,6 +48,7 @@ class OpenAILogger(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("log")
     def log(self,
             input_tokens: int,
             cached_tokens: int,

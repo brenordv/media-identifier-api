@@ -8,9 +8,12 @@ from src.repositories.base_repository import BaseRepository
 from src.utils import is_valid_year, get_otel_log_handler
 
 
+_logger = get_otel_log_handler("Cache")
+
+
 class MediaInfoCache(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
-        super().__init__(conn_pool, get_otel_log_handler("Cache"))
+        super().__init__(conn_pool, _logger)
 
         if not skip_database_initialization:
             self._ensure_table_exists()
@@ -109,6 +112,7 @@ class MediaInfoCache(BaseRepository):
 
         return values
 
+    @_logger.trace("get_cached_by_obj")
     def get_cached_by_obj(self, obj):
         try:
             self._logger.debug(f"Getting cached data by object for [{obj}]")
@@ -174,6 +178,7 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("get_cached")
     def get_cached(self, search_term: str, media_type: str, search_prop_name: str = "searchable_reference"):
         try:
             self._logger.debug(f"Getting cached data for {search_prop_name}: {search_term}")
@@ -199,6 +204,7 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("get_cached_by_tmdb_id")
     def get_cached_by_tmdb_id(self, tmdb_id: int):
         try:
             self._logger.debug(f"Getting cached media by TMDb ID: {tmdb_id}")
@@ -214,6 +220,7 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("get_cached_tv_episode")
     def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int):
         try:
             self._logger.debug(
@@ -239,6 +246,7 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("cache_data")
     def cache_data(self, new_record: dict):
         try:
             self._logger.debug(f"Caching record with title: {new_record.get('title', '[Unknown]')}")
@@ -270,6 +278,7 @@ class MediaInfoCache(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("update_cache")
     def update_cache(self, new_record: dict):
         try:
             self._logger.debug(f"Updating cache for record with title: {new_record.get('title', '[Unknown]')}")

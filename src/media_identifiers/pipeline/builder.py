@@ -1,5 +1,6 @@
 from typing import List
 
+from src.utils import get_otel_log_handler
 from src.media_identifiers.pipeline.base import PipelineHandler
 from src.media_identifiers.pipeline.handlers import (
     CacheLookupHandler,
@@ -15,6 +16,10 @@ from src.media_identifiers.pipeline.handlers import (
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 
 
+_logger = get_otel_log_handler("PipelineBuilder")
+
+
+@_logger.trace("build_pipeline")
 def build_pipeline(request: MediaIdentificationRequest) -> List[PipelineHandler]:
     handlers: List[PipelineHandler] = []
 

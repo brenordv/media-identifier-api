@@ -13,6 +13,7 @@ _tmdb_api_key: Union[str, None] = None
 _logger = get_otel_log_handler("MediaIdentifier")
 
 
+@_logger.trace("request_tmdb_movie_details")
 def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -28,6 +29,7 @@ def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
         .build()
 
 
+@_logger.trace("request_tmdb_series_details")
 def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -44,6 +46,7 @@ def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
         .build()
 
 
+@_logger.trace("request_tmdb_series_episode_details")
 def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -69,6 +72,7 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
         .build()
 
 
+@_logger.trace("request_tmdb_external_ids")
 def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Union[int, None] = None, episode_number: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -107,6 +111,7 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
         .build()
 
 
+@_logger.trace("identify_media_with_tmdb_movie_search")
 def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, MOVIE, year)
     if result is None:
@@ -114,6 +119,7 @@ def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = N
     return result.with_media_type(MOVIE).build()
 
 
+@_logger.trace("identify_media_with_tmdb_series_search")
 def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
     result = _identify_media_with_tmdb_by_type(query, TV, year)
     if result is None:
@@ -129,6 +135,7 @@ def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = 
     return series_data
 
 
+@_logger.trace("_identify_media_with_tmdb_by_type")
 def _identify_media_with_tmdb_by_type(query: str, media_type: str, year: Union[int, None]) -> Union[MediaInfoBuilder, None]:
     params = {
         'query': query,
@@ -201,6 +208,7 @@ def _get_debounce_time():
     return base_wait_time + jitter
 
 
+@_logger.trace("_make_request")
 def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
     response = None
 

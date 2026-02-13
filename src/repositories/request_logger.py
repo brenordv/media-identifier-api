@@ -5,9 +5,12 @@ from src.repositories.base_repository import BaseRepository
 from src.utils import get_otel_log_handler
 
 
+_logger = get_otel_log_handler("RequestLogger")
+
+
 class RequestLogger(BaseRepository):
     def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
-        super().__init__(conn_pool, get_otel_log_handler("RequestLogger"))
+        super().__init__(conn_pool, _logger)
         if not skip_database_initialization:
             self._ensure_table_exists()
 
@@ -47,6 +50,7 @@ class RequestLogger(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("log_start")
     def log_start(self, endpoint: str, filename: str, requester_ip: str):
         try:
             self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
@@ -68,6 +72,7 @@ class RequestLogger(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("log_completed")
     def log_completed(self, request_id: str, status_code: int, result_media_id: str = None, error_message: str = None):
         try:
             self._logger.debug(f"Logging request completion for ID {request_id} with status {status_code}, and result media ID {result_media_id}")
@@ -90,6 +95,7 @@ class RequestLogger(BaseRepository):
             self._logger.error(error_message)
             raise RuntimeError(error_message) from e
 
+    @_logger.trace("get_recent_requests")
     def get_recent_requests(self, limit: int = 100):
         try:
             self._logger.debug(f"Fetching recent requests with limit {limit}")

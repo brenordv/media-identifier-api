@@ -14,6 +14,7 @@ from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("OpenAI Task")
 
+@_logger.trace("openai_identify_series_season_and_episode_by_title")
 def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwargs):
     """
     Tries to identify an episode's season and episode number with OpenAI.
@@ -57,6 +58,7 @@ def openai_identify_series_season_and_episode_by_title(media_data: dict, **kwarg
     }), True
 
 
+@_logger.trace("openai_run_basic_identification_by_filename")
 def openai_run_basic_identification_by_filename(media_data: dict, **kwargs):
     """
     Tries to identify if the file is a movie or a series, and its title.

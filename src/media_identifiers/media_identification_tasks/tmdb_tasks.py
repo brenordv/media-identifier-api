@@ -9,6 +9,7 @@ from src.utils import get_otel_log_handler
 _logger = get_otel_log_handler("TMDB Task")
 
 
+@_logger.trace("tmdb_identify_movie_by_id")
 def tmdb_identify_movie_by_id(media_data: dict, **kwargs):
     """
     Tries to identify a movie with TMDB by title and then gets the details for that movie using the TMDb ID.
@@ -41,6 +42,7 @@ def tmdb_identify_movie_by_id(media_data: dict, **kwargs):
     return merge_media_info(media_data, movie_details), True
 
 
+@_logger.trace("tmdb_get_movie_external_ids")
 def tmdb_get_movie_external_ids(media_data: dict, **kwargs):
     """
     Uses TMDB api to get external ids for a movie.
@@ -54,6 +56,7 @@ def tmdb_get_movie_external_ids(media_data: dict, **kwargs):
     return _tmdb_get_media_external_ids(media_data, **kwargs, media_type=MOVIE)
 
 
+@_logger.trace("tmdb_identify_series_by_title_and_id")
 def tmdb_identify_series_by_title_and_id(media_data: dict, **kwargs):
     """
     Tries to identify a series with TMDB by title and then gets the details for that show using the TMDb ID.
@@ -86,6 +89,7 @@ def tmdb_identify_series_by_title_and_id(media_data: dict, **kwargs):
     return merge_media_info(media_data, series_details), True
 
 
+@_logger.trace("tmdb_get_series_external_ids")
 def tmdb_get_series_external_ids(media_data: dict, **kwargs):
     """
     Uses TMDB api to get external ids for a movie.
@@ -107,6 +111,7 @@ def tmdb_get_series_external_ids(media_data: dict, **kwargs):
     return merge_media_info(media_data, external_ids), True
 
 
+@_logger.trace("tmdb_get_episode_details")
 def tmdb_get_episode_details(media_data: dict, **kwargs):
     """
     Uses TMDB api to get the episode details.
@@ -138,6 +143,7 @@ def tmdb_get_episode_details(media_data: dict, **kwargs):
     return merge_media_info(media_data, episode_details), True
 
 
+@_logger.trace("_tmdb_get_media_external_ids")
 def _tmdb_get_media_external_ids(media_data: dict, **kwargs):
     """
     Uses TMDB api to get external ids for a movie.

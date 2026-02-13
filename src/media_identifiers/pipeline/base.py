@@ -7,6 +7,9 @@ from src.models.media_info import is_media_type_valid, merge_media_info
 from src.utils import get_otel_log_handler
 
 
+_logger = get_otel_log_handler("Pipeline")
+
+
 class StepStatus(str, Enum):
     SUCCESS = "success"
     SKIP = "skip"
@@ -78,6 +81,7 @@ class PipelineContext:
     def has_media_type(self) -> bool:
         return is_media_type_valid(self.media_type) if self.media_type else False
 
+    @_logger.trace("PipelineContext.update_media")
     def update_media(self, new_media: Optional[dict]) -> None:
         if new_media is None:
             return
@@ -107,8 +111,9 @@ class PipelineHandler:
 class PipelineController:
     def __init__(self, handlers: Sequence[PipelineHandler], logger=None):
         self.handlers = handlers
-        self.logger = logger or get_otel_log_handler("PipelineController")
+        self.logger = logger or _logger
 
+    @_logger.trace("PipelineController.run")
     def run(self, context: PipelineContext) -> PipelineResult:
         for handler in self.handlers:
             if not handler.handles(context):

@@ -7,11 +7,15 @@ from src.repositories.repository_factory import get_repository
 from src.utils import get_otel_log_handler
 
 
+_logger = get_otel_log_handler("MediaIdentifier")
+
+
 class MediaIdentifier:
     def __init__(self):
         self._cache = get_repository("cache")
-        self._logger = get_otel_log_handler("MediaIdentifier")
+        self._logger = _logger
 
+    @_logger.trace("identify")
     def identify(self, request: MediaIdentificationRequest) -> Optional[dict]:
         try:
             self._logger.debug(f"Starting identification: {request.to_logging_payload()}")
@@ -40,10 +44,12 @@ class MediaIdentifier:
             self._logger.error(f"Error identifying media request {request.to_logging_payload()}: {exc}")
             raise
 
+    @_logger.trace("get_media_info_by_filename")
     def get_media_info_by_filename(self, file_path: str) -> Optional[dict]:
         request = MediaIdentificationRequest.from_filename(file_path)
         return self.identify(request)
 
+    @_logger.trace("get_media_info")
     def get_media_info(
         self,
         media_type: str,
@@ -61,6 +67,7 @@ class MediaIdentifier:
         )
         return self.identify(request)
 
+    @_logger.trace("_persist_media")
     def _persist_media(self, media: dict) -> Optional[dict]:
         media_type = media.get("media_type")
 

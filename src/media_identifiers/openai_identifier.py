@@ -21,6 +21,7 @@ _openai_request_logger = None
 _open_ai_client = None
 
 
+@_logger.trace("identify_media_with_open_ai_multi")
 def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
     if media_type is None:
         media_type = identify_media_type_with_open_ai(file_path)
@@ -56,22 +57,27 @@ def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, Non
         .build()
 
 
+@_logger.trace("identify_media_type_with_open_ai")
 def identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_media_type_from_filename)
 
 
+@_logger.trace("identify_movie_title_with_open_ai")
 def identify_movie_title_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_movie_title_ai_function)
 
 
+@_logger.trace("identify_series_title_with_open_ai")
 def identify_series_title_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_series_title_ai_function)
 
 
+@_logger.trace("identify_series_season_episode_with_open_ai")
 def identify_series_season_episode_with_open_ai(file_path: str) -> Optional[str]:
     return _send_task_to_ai(file_path, extract_season_episode_from_filename)
 
 
+@_logger.trace("_send_task_to_ai")
 def _send_task_to_ai(file_path: str, ai_function: callable) -> Optional[str]:
     try:
         return _ask_open_ai(ai_input = _prepare_open_ai_input(file_path, ai_function))
@@ -92,6 +98,7 @@ Input:
 ```"""
 
 
+@_logger.trace("_ask_open_ai")
 def _ask_open_ai(ai_input: str) -> Optional[str]:
     try:
         ai_sys_instructions = """You are an AI that implements Python functions as described in code comments.

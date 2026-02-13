@@ -29,6 +29,7 @@ cache_repository = get_repository('cache')
 media_info_extender = MediaIdentifier()
 
 
+@logger.trace("_prepare_media_info_response")
 def _prepare_media_info_response(media_data, request_id):
     if media_data is None or len(media_data) == 0:
         status_code = status.HTTP_204_NO_CONTENT
@@ -46,6 +47,7 @@ def _prepare_media_info_response(media_data, request_id):
     return JSONResponse(content=serializable_result, status_code=status_code)
 
 
+@logger.trace("_process_guess_filename")
 def _process_guess_filename(it: str, is_retrying: bool = False):
     try:
         if is_retrying:
