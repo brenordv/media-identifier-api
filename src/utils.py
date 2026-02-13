@@ -37,9 +37,11 @@ def get_otel_log_handler(log_name: str) -> TracedLogger:
     if _otel_logger is not None:
         return _otel_logger
 
-    otel_endpoint = os.environ.get(
-        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://rverse.local:4318"
-    )
+    otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+    if not otel_endpoint:
+        raise ValueError("OTEL_EXPORTER_OTLP_ENDPOINT environment variable must be set.")
+
     service_name = "media-identifier-api"
     resource = create_resource(service_name)
 
