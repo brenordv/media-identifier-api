@@ -1,5 +1,6 @@
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+from opentelemetry import trace
 
 from src.repositories.base_repository import BaseRepository
 from src.utils import get_request_id, get_otel_log_handler
@@ -55,6 +56,15 @@ class OpenAILogger(BaseRepository):
             output_tokens: int,
             reasoning_tokens: int,
             total_tokens: int):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "openai_history",
+                "db.operation": "insert",
+                "ai.usage.input_tokens": input_tokens,
+                "ai.usage.output_tokens": output_tokens,
+                "ai.usage.total_tokens": total_tokens,
+            })
         try:
             request_id = get_request_id()
 

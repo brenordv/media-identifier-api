@@ -1,5 +1,6 @@
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+from opentelemetry import trace
 
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.constants import MOVIE, TV
@@ -114,6 +115,12 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("get_cached_by_obj")
     def get_cached_by_obj(self, obj):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "select",
+            })
         try:
             self._logger.debug(f"Getting cached data by object for [{obj}]")
 
@@ -180,6 +187,14 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("get_cached")
     def get_cached(self, search_term: str, media_type: str, search_prop_name: str = "searchable_reference"):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "select",
+                "db.search_property": search_prop_name,
+                "db.search_term": search_term,
+            })
         try:
             self._logger.debug(f"Getting cached data for {search_prop_name}: {search_term}")
             with self._get_connection() as conn:
@@ -206,6 +221,13 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("get_cached_by_tmdb_id")
     def get_cached_by_tmdb_id(self, tmdb_id: int):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "select",
+                "tmdb.id": tmdb_id,
+            })
         try:
             self._logger.debug(f"Getting cached media by TMDb ID: {tmdb_id}")
             with self._get_connection() as conn:
@@ -222,6 +244,15 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("get_cached_tv_episode")
     def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "select",
+                "tmdb.series_id": tmdb_series_id,
+                "media.season": season,
+                "media.episode": episode,
+            })
         try:
             self._logger.debug(
                 f"Getting cached TV episode by Series ID: {tmdb_series_id}, Season: {season}, Episode: {episode}"
@@ -248,6 +279,12 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("cache_data")
     def cache_data(self, new_record: dict):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "insert",
+            })
         try:
             self._logger.debug(f"Caching record with title: {new_record.get('title', '[Unknown]')}")
             with self._get_connection() as conn:
@@ -280,6 +317,13 @@ class MediaInfoCache(BaseRepository):
 
     @_logger.trace("update_cache")
     def update_cache(self, new_record: dict):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "cached_media",
+                "db.operation": "update",
+                "media.id": new_record.get('id'),
+            })
         try:
             self._logger.debug(f"Updating cache for record with title: {new_record.get('title', '[Unknown]')}")
             with self._get_connection() as conn:

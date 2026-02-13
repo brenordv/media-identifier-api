@@ -1,3 +1,4 @@
+from opentelemetry import trace
 import os
 import random
 import time
@@ -15,6 +16,10 @@ _logger = get_otel_log_handler("MediaIdentifier")
 
 @_logger.trace("request_tmdb_movie_details")
 def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("tmdb.id", tmdb_id)
+
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
@@ -31,6 +36,10 @@ def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
 
 @_logger.trace("request_tmdb_series_details")
 def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("tmdb.id", tmdb_id)
+
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
@@ -48,6 +57,14 @@ def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
 
 @_logger.trace("request_tmdb_series_episode_details")
 def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "tmdb.id": tmdb_id,
+            "media.season": season,
+            "media.episode": episode,
+        })
+
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
@@ -74,6 +91,15 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
 
 @_logger.trace("request_tmdb_external_ids")
 def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Union[int, None] = None, episode_number: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "tmdb.id": tmdb_id,
+            "media.type": media_type,
+        })
+        if season_number: span.set_attribute("media.season", season_number)
+        if episode_number: span.set_attribute("media.episode", episode_number)
+
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
@@ -113,6 +139,13 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
 
 @_logger.trace("identify_media_with_tmdb_movie_search")
 def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "media.query": query,
+            "media.year": year,
+            "media.type": MOVIE,
+        })
     result = _identify_media_with_tmdb_by_type(query, MOVIE, year)
     if result is None:
         return None
@@ -121,6 +154,13 @@ def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = N
 
 @_logger.trace("identify_media_with_tmdb_series_search")
 def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "media.query": query,
+            "media.year": year,
+            "media.type": TV,
+        })
     result = _identify_media_with_tmdb_by_type(query, TV, year)
     if result is None:
         return None
@@ -210,6 +250,9 @@ def _get_debounce_time():
 
 @_logger.trace("_make_request")
 def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("http.url", url)
     response = None
 
     try:

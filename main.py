@@ -9,6 +9,7 @@ from uuid import UUID
 import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
+from opentelemetry import trace
 
 from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
@@ -66,6 +67,13 @@ def _process_guess_filename(it: str, is_retrying: bool = False):
 async def guess_filename(
         request: Request,
         it: str = Query(None, description="Filename to analyze")):
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "http.method": request.method,
+            "http.client_ip": request.client.host,
+            "media.input_filename": it,
+        })
     """
     Analyze a filename using guessit and return the extracted information.
 
@@ -116,6 +124,17 @@ async def get_media_info(
         season: int = Query(None, description="Season number of the media"),
         episode: int = Query(None, description="Episode number of the media"),
 ):
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "http.method": request.method,
+            "http.client_ip": request.client.host,
+            "media.type": media_type,
+            "media.title": title,
+            "media.year": year,
+        })
+        if season: span.set_attribute("media.season", season)
+        if episode: span.set_attribute("media.episode", episode)
     """
     Similar to the `/api/media-info` endpoint and will return the same information but will skip the identification step.
     This endpoint assumes you know the media you want info about.
@@ -192,6 +211,13 @@ async def get_media_info_by_id(
         request: Request,
         media_id: UUID,
 ):
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "http.method": request.method,
+            "http.client_ip": request.client.host,
+            "media.id": str(media_id),
+        })
     """
     Retrieve media information directly from the cache using the media ID.
 

@@ -1,6 +1,7 @@
 import inspect
 import os
 from typing import Optional, Union
+from opentelemetry import trace
 from openai import OpenAI, OpenAIError, RateLimitError
 
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
@@ -23,6 +24,13 @@ _open_ai_client = None
 
 @_logger.trace("identify_media_with_open_ai_multi")
 def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({
+            "media.file_path": file_path,
+            "media.type": media_type or "unknown",
+        })
+
     if media_type is None:
         media_type = identify_media_type_with_open_ai(file_path)
         if not media_type:
@@ -59,21 +67,29 @@ def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, Non
 
 @_logger.trace("identify_media_type_with_open_ai")
 def identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
+    span = trace.get_current_span()
+    if span.is_recording(): span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_media_type_from_filename)
 
 
 @_logger.trace("identify_movie_title_with_open_ai")
 def identify_movie_title_with_open_ai(file_path: str) -> Optional[str]:
+    span = trace.get_current_span()
+    if span.is_recording(): span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_movie_title_ai_function)
 
 
 @_logger.trace("identify_series_title_with_open_ai")
 def identify_series_title_with_open_ai(file_path: str) -> Optional[str]:
+    span = trace.get_current_span()
+    if span.is_recording(): span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_series_title_ai_function)
 
 
 @_logger.trace("identify_series_season_episode_with_open_ai")
 def identify_series_season_episode_with_open_ai(file_path: str) -> Optional[str]:
+    span = trace.get_current_span()
+    if span.is_recording(): span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_season_episode_from_filename)
 
 
@@ -100,6 +116,10 @@ Input:
 
 @_logger.trace("_ask_open_ai")
 def _ask_open_ai(ai_input: str) -> Optional[str]:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attribute("ai.model", _open_ai_model)
+
     try:
         ai_sys_instructions = """You are an AI that implements Python functions as described in code comments.
 Only respond to the user's request by executing the function as described, strictly following the output format specified in the comments. 
@@ -118,6 +138,10 @@ You are forbidden from guessing, inferring, or deducing information that is not 
             temperature=0.1)
 
         usage = _extract_usage_from_response(response.usage)
+
+        if span.is_recording():
+            for key, value in usage.items():
+                span.set_attribute(f"ai.usage.{key}", value)
 
         logger = _get_openai_request_logger()
         if logger:

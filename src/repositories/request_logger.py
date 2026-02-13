@@ -1,5 +1,6 @@
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
+from opentelemetry import trace
 
 from src.repositories.base_repository import BaseRepository
 from src.utils import get_otel_log_handler
@@ -52,6 +53,15 @@ class RequestLogger(BaseRepository):
 
     @_logger.trace("log_start")
     def log_start(self, endpoint: str, filename: str, requester_ip: str):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "request_history",
+                "db.operation": "insert",
+                "http.endpoint": endpoint,
+                "media.input_filename": filename,
+                "http.client_ip": requester_ip,
+            })
         try:
             self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
             with self._get_connection() as conn:
@@ -74,6 +84,15 @@ class RequestLogger(BaseRepository):
 
     @_logger.trace("log_completed")
     def log_completed(self, request_id: str, status_code: int, result_media_id: str = None, error_message: str = None):
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attributes({
+                "db.table": "request_history",
+                "db.operation": "update",
+                "http.request_id": request_id,
+                "http.status_code": status_code,
+            })
+            if result_media_id: span.set_attribute("media.id", result_media_id)
         try:
             self._logger.debug(f"Logging request completion for ID {request_id} with status {status_code}, and result media ID {result_media_id}")
             with self._get_connection() as conn:

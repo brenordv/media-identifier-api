@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Sequence
+from opentelemetry import trace
 
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 from src.models.media_info import is_media_type_valid, merge_media_info
@@ -115,6 +116,10 @@ class PipelineController:
 
     @_logger.trace("PipelineController.run")
     def run(self, context: PipelineContext) -> PipelineResult:
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("pipeline.handler_count", len(self.handlers))
+
         for handler in self.handlers:
             if not handler.handles(context):
                 continue
