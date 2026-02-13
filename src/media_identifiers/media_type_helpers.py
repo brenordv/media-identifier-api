@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Optional
 
 from src.media_identifiers.constants import MOVIE, TV, VALID_MEDIA_TYPES
+from src.utils import get_otel_log_handler
+
+_logger = get_otel_log_handler("MediaIdentifier")
 
 _MEDIA_TYPE_ALIASES = {
     "tv show": TV,
@@ -19,6 +22,7 @@ _MEDIA_TYPE_ALIASES = {
 }
 
 
+@_logger.trace("normalize_media_type")
 def normalize_media_type(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None

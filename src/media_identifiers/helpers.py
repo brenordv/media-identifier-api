@@ -8,6 +8,7 @@ from src.utils import get_otel_log_handler
 _logger = get_otel_log_handler("MediaIdentifierHelpers")
 
 
+@_logger.trace("apply_basic_media_attributes")
 def apply_basic_media_attributes(
     builder: MediaInfoBuilder,
     *,
@@ -45,6 +46,7 @@ def apply_basic_media_attributes(
     return builder
 
 
+@_logger.trace("parse_season_episode_string")
 def parse_season_episode_string(
     value: Optional[str],
     *,

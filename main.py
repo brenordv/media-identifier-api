@@ -58,6 +58,7 @@ def _process_guess_filename(it: str, is_retrying: bool = False):
     except PipelineExecutionError as e:
         if is_retrying:
             raise
+        logger.warning(f"Pipeline failed for full path. Retrying with filename only for: {it}")
         return _process_guess_filename(it, True)
 
 @app.get("/api/guess")

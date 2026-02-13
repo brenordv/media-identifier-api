@@ -1,6 +1,10 @@
 import re
 from typing import Iterable, Tuple
 
+from src.utils import get_otel_log_handler
+
+_logger = get_otel_log_handler("Converters")
+
 # Roman symbol values
 _ROMAN_VALUES = {
     "I": 1, "V": 5, "X": 10, "L": 50,
@@ -53,6 +57,7 @@ def _roman_to_int_loose(s: str) -> int:
     return total
 
 
+@_logger.trace("replace_roman_numerals")
 def replace_roman_numerals(
     text: str,
     *,

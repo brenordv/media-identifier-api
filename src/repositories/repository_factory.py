@@ -6,9 +6,11 @@ from psycopg2.pool import SimpleConnectionPool
 from src.repositories.media_info_cache import MediaInfoCache
 from src.repositories.openai_logger import OpenAILogger
 from src.repositories.request_logger import RequestLogger
+from src.utils import get_otel_log_handler
 
 _db_pool: Optional[SimpleConnectionPool] = None
 _repos_initialized = set()
+_logger = get_otel_log_handler("RepositoryFactory")
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
@@ -17,6 +19,7 @@ def _require_env(name: str) -> str:
     return value
 
 
+@_logger.trace("_get_pool")
 def _get_pool() -> SimpleConnectionPool:
     global _db_pool
 
@@ -42,6 +45,7 @@ def _get_pool() -> SimpleConnectionPool:
     return _db_pool
 
 
+@_logger.trace("get_repository")
 def get_repository(repo_name: str):
     pool = _get_pool()
     repo_name = repo_name.lower()
