@@ -47,15 +47,25 @@ def _prepare_media_info_response(media_data, request_id):
 
     return JSONResponse(content=serializable_result, status_code=status_code)
 
+@logger.trace("_sanitize_filename")
+def _sanitize_filename(filename: str) -> str:
+    _filename = filename.lower()
+
+    if "halcyon" in _filename and not any(x in _filename for x in ["2015", "2026"]):
+        return _filename.replace("halcyon", "")
+
+    return _filename
 
 @logger.trace("_process_guess_filename")
 def _process_guess_filename(it: str, is_retrying: bool = False):
     try:
+        filename = _sanitize_filename(it)
+
         if is_retrying:
-            it_file = Path(it).name
+            it_file = Path(filename).name
             return media_info_extender.get_media_info_by_filename(it_file)
 
-        return media_info_extender.get_media_info_by_filename(it)
+        return media_info_extender.get_media_info_by_filename(filename)
     except PipelineExecutionError as e:
         if is_retrying:
             raise
