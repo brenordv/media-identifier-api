@@ -265,7 +265,7 @@ async def get_media_info_by_id(
 
 
 @app.get("/api/health")
-@logger.trace("/api/health")
+#@logger.trace("/api/health")
 async def health_check():
     """
     Health check endpoint that verifies guessit is working correctly.
