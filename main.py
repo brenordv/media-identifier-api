@@ -13,7 +13,7 @@ from opentelemetry import trace
 
 from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
-from src.utils import set_request_id, get_otel_log_handler
+from src.utils import set_request_id, get_otel_log_handler, flush_all_otel_loggers
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.repositories.repository_factory import get_repository
 
@@ -310,13 +310,14 @@ async def get_statistics(num_requests: int = Query(100, description="Number of r
 
 
 if __name__ == "__main__":
-    # Flush buffered OTEL log records before starting uvicorn.
+    # Flush ALL OTEL log handlers before starting uvicorn.
     # On Windows the BatchLogRecordProcessor's background HTTP export
     # can deadlock with ProactorEventLoop initialisation if both run
-    # concurrently.  Flushing here drains the queue so the worker
-    # thread has nothing to export during the critical startup window.
-    for h in logger.logger.handlers:
-        h.flush()
+    # concurrently.  Every TracedLogger (API, RequestLogger, Cache, etc.)
+    # has its own BatchLogRecordProcessor; we must drain them all.
+    print("Flushing buffered OTEL log records before starting uvicorn.")
+    flush_all_otel_loggers()
 
+    print("Starting uvicorn server.")
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

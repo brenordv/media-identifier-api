@@ -12,6 +12,7 @@ from simple_log_factory_ext_otel import (
 from opentelemetry import trace
 
 request_id_var = contextvars.ContextVar('request_id')
+_all_loggers: dict[int, TracedLogger] = {}
 
 
 def set_request_id(request_id):
@@ -39,8 +40,25 @@ def get_otel_log_handler(log_name: str) -> TracedLogger:
 
     service_name = "media-identifier-api"
 
-    return otel_log_factory(
+    traced = otel_log_factory(
         service_name=service_name,
         log_name=log_name,
-        otel_exporter_endpoint=otel_endpoint
+        otel_exporter_endpoint=otel_endpoint,
+        instrument_db={"psycopg2": {"enable_commenter": True}},
     )
+
+    _all_loggers[id(traced)] = traced
+
+    return traced
+
+
+def flush_all_otel_loggers() -> None:
+    """Flush every OtelLogHandler created via get_otel_log_handler().
+
+    Must be called before uvicorn.run() on Windows to drain all
+    BatchLogRecordProcessor queues and avoid a deadlock between
+    the batch-export background threads and ProactorEventLoop init.
+    """
+    for traced in _all_loggers.values():
+        for h in traced.logger.handlers:
+            h.flush()
