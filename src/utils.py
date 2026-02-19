@@ -2,14 +2,7 @@ import contextvars
 import os
 from datetime import datetime
 
-from simple_log_factory.log_factory import log_factory
-from simple_log_factory_ext_otel import (
-    OtelLogHandler,
-    OtelTracer,
-    TracedLogger,
-    create_resource, otel_log_factory,
-)
-from opentelemetry import trace
+from simple_log_factory_ext_otel import TracedLogger, otel_log_factory
 
 request_id_var = contextvars.ContextVar('request_id')
 _all_loggers: dict[int, TracedLogger] = {}
