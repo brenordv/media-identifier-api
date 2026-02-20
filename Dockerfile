@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # Install dependencies
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
+RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.txt
 
 # Install gunicorn for production
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels gunicorn
