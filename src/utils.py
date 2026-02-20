@@ -38,6 +38,7 @@ def get_otel_log_handler(log_name: str) -> TracedLogger:
         log_name=log_name,
         otel_exporter_endpoint=otel_endpoint,
         instrument_db={"psycopg2": {"enable_commenter": True}},
+        instrument_fastapi=True
     )
 
     _all_loggers[id(traced)] = traced
