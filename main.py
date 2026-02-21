@@ -24,7 +24,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-logger = get_otel_log_handler("API")
+logger = get_otel_log_handler("API", fastapi_app=app)
 request_logger = get_repository('request_logger')
 cache_repository = get_repository('cache')
 media_info_extender = MediaIdentifier()

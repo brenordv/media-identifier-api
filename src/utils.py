@@ -25,7 +25,7 @@ def is_valid_year(year):
     current_year = datetime.now().year
     return first_movie_ever_release <= year <= current_year
 
-def get_otel_log_handler(log_name: str) -> TracedLogger:
+def get_otel_log_handler(log_name: str, fastapi_app=None) -> TracedLogger:
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 
     if not otel_endpoint:
@@ -38,7 +38,7 @@ def get_otel_log_handler(log_name: str) -> TracedLogger:
         log_name=log_name,
         otel_exporter_endpoint=otel_endpoint,
         instrument_db={"psycopg2": {"enable_commenter": True}},
-        instrument_fastapi=True
+        instrument_fastapi={"app": fastapi_app} if fastapi_app is not None else None,
     )
 
     _all_loggers[id(traced)] = traced
