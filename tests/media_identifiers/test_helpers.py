@@ -1,7 +1,4 @@
-from src.media_identifiers.helpers import (
-    apply_basic_media_attributes,
-    parse_season_episode_string,
-)
+from src.media_identifiers.helpers import apply_basic_media_attributes
 from src.models.media_info import MediaInfoBuilder
 
 
@@ -24,15 +21,3 @@ def test_apply_basic_media_attributes_sets_core_fields() -> None:
     assert data["year"] == 2024
     assert data["season"] == 2
     assert data["episode"] == 5
-
-
-def test_parse_season_episode_string_valid_value() -> None:
-    season, episode = parse_season_episode_string("Season: 3, Episode: 10")
-    assert season == 3
-    assert episode == 10
-
-
-def test_parse_season_episode_string_invalid_value() -> None:
-    season, episode = parse_season_episode_string("invalid-format")
-    assert season is None
-    assert episode is None

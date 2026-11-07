@@ -3,11 +3,13 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Self
+from typing import Any, Literal, Self
 
 from opentelemetry import trace
 from simple_log_factory_ext_otel import TracedLogger
 
+from src.media_identifiers.errors import UpstreamUnavailableError
+from src.media_identifiers.nimble_classifier import NimbleVerdict
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 from src.models.media_info import MediaData, is_media_type_valid, merge_media_info
 from src.repositories.media_info_cache import MediaInfoCache
@@ -17,12 +19,26 @@ _logger = get_otel_log_handler("Pipeline")
 
 
 class StepStatus(StrEnum):
-    """Outcome of one handler: continue (SUCCESS/SKIP), stop with a result (DONE), or abort (FATAL)."""
+    """Outcome of one handler: continue (SUCCESS/SKIP) or stop with the run's answer (DONE)."""
 
     SUCCESS = "success"
     SKIP = "skip"
     DONE = "done"
-    FATAL = "fatal"
+
+
+class IdentificationOutcome(StrEnum):
+    """The verdict of an identification run."""
+
+    IDENTIFIED = "identified"
+    """A cache hit, or TMDB matched a movie or a series."""
+    NOT_MEDIA = "not_media"
+    """The file is not a movie or TV release."""
+    UNIDENTIFIED = "unidentified"
+    """Every applicable step ran and none produced a TMDB match."""
+
+
+DecidedBy = Literal["guessit", "nimble", "openai", "request"]
+"""The step that settled the media type (or the not_media verdict); ``request`` when the caller supplied it."""
 
 
 @dataclass
@@ -31,7 +47,6 @@ class StepResult:
 
     status: StepStatus
     message: str | None = None
-    error: BaseException | None = None
 
     @classmethod
     def success(cls, message: str | None = None) -> Self:
@@ -48,23 +63,28 @@ class StepResult:
         """The pipeline has its answer; stop."""
         return cls(status=StepStatus.DONE, message=message)
 
-    @classmethod
-    def fatal(cls, message: str | None = None, error: BaseException | None = None) -> Self:
-        """The media cannot be identified; abort."""
-        return cls(status=StepStatus.FATAL, message=message, error=error)
-
 
 @dataclass
 class PipelineResult:
-    """Final state of a pipeline run: the identified media, or a cache hit that ended the run early."""
+    """Final state of a pipeline run.
+
+    Attributes:
+        media: The media identified so far.
+        cached: The cache hit that ended the run early, if any.
+        completed: Whether a handler ended the run.
+        outcome: A verdict a handler reached (``not_media``), or None when no handler reached one.
+        decided_by: The step that settled the media type or the ``not_media`` verdict, if any.
+    """
 
     media: MediaData | None
     cached: MediaData | None
     completed: bool
+    outcome: IdentificationOutcome | None = None
+    decided_by: DecidedBy | None = None
 
 
 class PipelineExecutionError(RuntimeError):
-    """A handler failed or reported a fatal result."""
+    """A handler raised an unexpected error."""
 
 
 class PipelineContext:
@@ -90,6 +110,19 @@ class PipelineContext:
         self.cached_result: MediaData | None = None
         self.completed: bool = False
         self.errors: list[BaseException] = []
+        self.outcome: IdentificationOutcome | None = None
+        self.decided_by: DecidedBy | None = "request" if request.mode == RequestMode.METADATA else None
+        self.guessit_reading: dict[str, Any] | None = None
+        self.nimble_verdict: NimbleVerdict | None = None
+        self.type_uncertain: bool = False
+        self.openai_consulted: bool = False
+        self.title_from_openai: bool = False
+        self.deferred_upstream_error: UpstreamUnavailableError | None = None
+        """An OpenAI outage the run continued without."""
+        self.tmdb_searches: set[tuple[str, str | None, int | None]] = set()
+        self.tmdb_no_match: bool = False
+        self.step_readings: dict[str, str] = {}
+        """What each step concluded, keyed by step name."""
 
     @property
     def mode(self) -> RequestMode:
@@ -121,13 +154,25 @@ class PipelineContext:
         self.cached_result = cached
         self.completed = True
 
+    def mark_not_media(self, decided_by: DecidedBy) -> None:
+        """Record that the file is not a movie or TV release and mark the run complete."""
+        self.outcome = IdentificationOutcome.NOT_MEDIA
+        self.decided_by = decided_by
+        self.completed = True
+
     def record_error(self, error: BaseException) -> None:
-        """Keep an error raised or reported by a handler."""
+        """Keep an error raised by a handler."""
         self.errors.append(error)
 
     def finalize(self) -> PipelineResult:
         """Return the run's result."""
-        return PipelineResult(media=self.media, cached=self.cached_result, completed=self.completed)
+        return PipelineResult(
+            media=self.media,
+            cached=self.cached_result,
+            completed=self.completed,
+            outcome=self.outcome,
+            decided_by=self.decided_by,
+        )
 
 
 class PipelineHandler:
@@ -145,7 +190,7 @@ class PipelineHandler:
 
 
 class PipelineController:
-    """Runs handlers in order until one finishes the run or aborts it.
+    """Runs handlers in order until one finishes the run.
 
     Args:
         handlers: The steps, in order.
@@ -164,7 +209,8 @@ class PipelineController:
             The result once a handler reports DONE or every handler ran.
 
         Raises:
-            PipelineExecutionError: If a handler raises or reports FATAL.
+            UpstreamUnavailableError: If a service a handler needs is unavailable (passed through unwrapped).
+            PipelineExecutionError: If a handler raises any other error.
         """
         span = trace.get_current_span()
         if span.is_recording():
@@ -176,21 +222,15 @@ class PipelineController:
             handler_name = getattr(handler, "name", handler.__class__.__name__)
             try:
                 result = handler.invoke(context)
+            except UpstreamUnavailableError:
+                raise
             except Exception as exc:
                 context.record_error(exc)
                 self.logger.error(f"[{handler_name}] raised unhandled error: {exc}")
                 raise PipelineExecutionError(f"Handler '{handler_name}' execution failed: {exc}") from exc
 
-            if result.status in (StepStatus.SKIP, StepStatus.SUCCESS):
-                continue
-
             if result.status == StepStatus.DONE:
                 context.completed = True
                 return context.finalize()
-
-            if result.status == StepStatus.FATAL:
-                error = result.error or RuntimeError(result.message or "Pipeline handler failed.")
-                context.record_error(error)
-                raise PipelineExecutionError(result.message or "Pipeline handler failed.") from error
 
         return context.finalize()

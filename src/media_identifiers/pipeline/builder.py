@@ -4,8 +4,8 @@ from src.media_identifiers.pipeline.base import PipelineHandler
 from src.media_identifiers.pipeline.handlers import (
     CacheLookupHandler,
     GuessItIdentificationHandler,
-    OpenAIBasicIdentificationHandler,
-    OpenAISeriesSeasonEpisodeHandler,
+    NimbleTriageHandler,
+    OpenAIFallbackHandler,
     TMDBEpisodeDetailsHandler,
     TMDBIdentifyMovieHandler,
     TMDBIdentifySeriesHandler,
@@ -22,29 +22,35 @@ _logger = get_otel_log_handler("PipelineBuilder")
 def build_pipeline(request: MediaIdentificationRequest) -> list[PipelineHandler]:
     """Return the steps for a request.
 
-    Filename requests start with guessit and OpenAI identification; metadata requests start with a cache lookup.
-    Both continue with TMDB identification and enrichment, with cache lookups in between.
+    Filename requests run guessit, the Nimble triage and the OpenAI fallback around TMDB identification; metadata
+    requests start with a cache lookup and go straight to TMDB. Both end with TMDB enrichment, with cache lookups in
+    between.
     """
-    handlers: list[PipelineHandler] = []
-
     if request.mode == RequestMode.FILENAME:
-        handlers.extend(
-            [
-                GuessItIdentificationHandler(),
-                CacheLookupHandler(label="post-guessit"),
-                OpenAIBasicIdentificationHandler(),
-                CacheLookupHandler(label="post-openai"),
-            ]
-        )
+        handlers: list[PipelineHandler] = [
+            GuessItIdentificationHandler(),
+            CacheLookupHandler(label="post-guessit"),
+            NimbleTriageHandler(),
+            CacheLookupHandler(label="post-nimble"),
+            OpenAIFallbackHandler(after_tmdb=False),
+            CacheLookupHandler(label="post-openai"),
+            TMDBIdentifyMovieHandler(),
+            TMDBIdentifySeriesHandler(),
+            OpenAIFallbackHandler(after_tmdb=True),
+            CacheLookupHandler(label="post-openai-retry"),
+            TMDBIdentifyMovieHandler(),
+            TMDBIdentifySeriesHandler(),
+        ]
     else:
-        handlers.append(CacheLookupHandler(label="metadata-seed"))
+        handlers = [
+            CacheLookupHandler(label="metadata-seed"),
+            TMDBIdentifyMovieHandler(),
+            TMDBIdentifySeriesHandler(),
+        ]
 
     handlers.extend(
         [
-            TMDBIdentifyMovieHandler(),
-            TMDBIdentifySeriesHandler(),
             CacheLookupHandler(label="post-tmdb-identify"),
-            OpenAISeriesSeasonEpisodeHandler(),
             TMDBMovieExternalIdsHandler(),
             TMDBSeriesExternalIdsHandler(),
             TMDBEpisodeDetailsHandler(),

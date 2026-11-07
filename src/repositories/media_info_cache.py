@@ -16,7 +16,7 @@ from raccoontools_db import get_pool
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.constants import TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
-from src.models.media_info import MediaData
+from src.models.media_info import SERVICE_FLAGS, MediaData
 from src.repositories.base_repository import BaseRepository, PoolGetter
 from src.utils import get_otel_log_handler, is_valid_year
 
@@ -47,13 +47,12 @@ CACHE_COLUMNS: tuple[str, ...] = (
     "used_guessit",
     "used_tmdb",
     "used_openai",
+    "used_nimble",
 )
 """Columns a cached record may write; ``id``, ``created_at`` and ``modified_at`` are filled by the database."""
 
 REQUIRED_COLUMNS: tuple[str, ...] = ("tmdb_id", "title", "original_title", "media_type", "year")
 """Columns declared NOT NULL without a default."""
-
-_SERVICE_FLAG_COLUMNS = ("used_guessit", "used_tmdb", "used_openai")
 
 
 class MediaInfoCache(BaseRepository):
@@ -268,9 +267,7 @@ class MediaInfoCache(BaseRepository):
             raise ValueError("Missing required fields in the record")
 
         columns = [column for column in CACHE_COLUMNS if column in new_record]
-        values = [
-            bool(new_record[column]) if column in _SERVICE_FLAG_COLUMNS else new_record[column] for column in columns
-        ]
+        values = [bool(new_record[column]) if column in SERVICE_FLAGS else new_record[column] for column in columns]
         query = sql.SQL(
             "INSERT INTO cached_media ({columns}) VALUES ({placeholders}) "
             "ON CONFLICT (tmdb_id, media_type) DO NOTHING RETURNING id;"

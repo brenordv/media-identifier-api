@@ -10,7 +10,8 @@ from src.media_identifiers.media_type_helpers import normalize_media_type
 MediaData = dict[str, Any]
 """A media record: the keys :meth:`MediaInfoBuilder.build` produces, possibly with a subset filled."""
 
-_SERVICE_FLAGS = ("used_guessit", "used_tmdb", "used_openai")
+SERVICE_FLAGS = ("used_guessit", "used_tmdb", "used_openai", "used_nimble")
+"""Keys recording which services contributed to a record; once True, a merge keeps them True."""
 
 TMDB_GENRES: dict[int, str] = {
     28: "Action",
@@ -73,6 +74,7 @@ class MediaInfoBuilder:
         self._used_guessit: bool | None = None
         self._used_tmdb: bool | None = None
         self._used_openai: bool | None = None
+        self._used_nimble: bool | None = None
         self._created_at: datetime | None = None
         self._modified_at: datetime | None = None
 
@@ -224,6 +226,11 @@ class MediaInfoBuilder:
         self._used_openai = used_openai
         return self
 
+    def with_used_nimble(self, used_nimble: bool | None) -> Self:
+        """Record whether the Nimble classifier set the record's media type."""
+        self._used_nimble = used_nimble
+        return self
+
     def with_created_at(self, created_at: datetime | None) -> Self:
         """Set the creation timestamp."""
         self._created_at = created_at
@@ -262,6 +269,7 @@ class MediaInfoBuilder:
             "used_guessit": self._used_guessit,
             "used_tmdb": self._used_tmdb,
             "used_openai": self._used_openai,
+            "used_nimble": self._used_nimble,
             "created_at": self._created_at,
             "modified_at": self._modified_at,
         }
@@ -291,7 +299,7 @@ def merge_media_info(existing: MediaData | None, new: MediaData | None) -> Media
         if value is None:
             continue
 
-        if key in _SERVICE_FLAGS and merged.get(key) is True:
+        if key in SERVICE_FLAGS and merged.get(key) is True:
             continue
 
         merged[key] = value

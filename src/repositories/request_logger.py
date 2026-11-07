@@ -75,6 +75,8 @@ class RequestLogger(BaseRepository):
         status_code: int,
         result_media_id: str | None = None,
         error_message: str | None = None,
+        outcome: str | None = None,
+        decided_by: str | None = None,
     ) -> None:
         """Record how a request ended.
 
@@ -83,6 +85,9 @@ class RequestLogger(BaseRepository):
             status_code: HTTP status sent to the client.
             result_media_id: Id of the cached media returned, if any.
             error_message: Operator-facing description of a failure, if any.
+            outcome: ``identified``, ``not_media`` or ``unidentified`` when identification reached a verdict.
+            decided_by: The step that settled the media type or the ``not_media`` verdict (``guessit``, ``nimble``,
+                ``openai`` or ``request``), if any.
 
         Raises:
             RuntimeError: If the update fails.
@@ -107,8 +112,8 @@ class RequestLogger(BaseRepository):
             with self._get_connection() as conn, conn.cursor() as cursor:
                 cursor.execute(
                     "UPDATE request_history SET responded_at = CURRENT_TIMESTAMP, result_status = %s, "
-                    "result_media_id = %s, error_message = %s WHERE id = %s;",
-                    (status_code, result_media_id, error_message, request_id),
+                    "result_media_id = %s, error_message = %s, outcome = %s, decided_by = %s WHERE id = %s;",
+                    (status_code, result_media_id, error_message, outcome, decided_by, request_id),
                 )
             self._logger.debug(f"Request ID {request_id} updated successfully")
         except psycopg.Error as e:
@@ -123,7 +128,7 @@ class RequestLogger(BaseRepository):
 
         Returns:
             One dict per request with its id, file name, client address, status, result id, timestamps, elapsed
-            time and error message.
+            time, error message, outcome and deciding step.
 
         Raises:
             RuntimeError: If the query fails.
@@ -133,7 +138,8 @@ class RequestLogger(BaseRepository):
             with self._get_connection() as conn, conn.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     "SELECT id, filename, requester_ip, result_status, result_media_id, received_at, responded_at, "
-                    "elapsed_time, error_message FROM request_history ORDER BY received_at DESC LIMIT %s;",
+                    "elapsed_time, error_message, outcome, decided_by FROM request_history "
+                    "ORDER BY received_at DESC LIMIT %s;",
                     (limit,),
                 )
                 rows = cursor.fetchall()

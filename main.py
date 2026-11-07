@@ -4,12 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, get_args
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -20,9 +21,12 @@ from raccoontools_db import close_pool, create_pool
 
 from src.database.migrations import apply_migrations
 from src.database.pool import build_pool_config
-from src.media_identifiers.media_identifier import MediaIdentifier
+from src.media_identifiers.errors import UpstreamReason, UpstreamService, UpstreamUnavailableError
+from src.media_identifiers.media_identifier import IdentificationResult, MediaIdentifier
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
-from src.media_identifiers.pipeline.base import PipelineExecutionError
+from src.media_identifiers.nimble_classifier import get_nimble_url
+from src.media_identifiers.openai_identifier import is_openai_configured
+from src.media_identifiers.pipeline import IdentificationOutcome
 from src.models.media_info import MediaData
 from src.repositories.media_info_cache import MediaInfoCache
 from src.repositories.repository_factory import get_cache_repository, get_request_logger
@@ -34,11 +38,29 @@ MAX_SEASON_OR_EPISODE = 9999
 MAX_STATISTICS_REQUESTS = 1000
 FIRST_ACCEPTED_YEAR = 1900
 INTERNAL_ERROR_DETAIL = "Internal error while processing the request."
+SERVICE_UNAVAILABLE_DETAIL = "Identification is temporarily unavailable; retry later."
+
+_PUBLIC_500_MESSAGE = re.compile(re.escape(INTERNAL_ERROR_DETAIL) + r"( \([A-Za-z_][A-Za-z0-9_]*\))?")
+_PUBLIC_503_MESSAGE = re.compile(
+    re.escape(SERVICE_UNAVAILABLE_DETAIL)
+    + rf" \(({'|'.join(get_args(UpstreamService))}): ({'|'.join(get_args(UpstreamReason))})( [a-z_]{{1,64}})?\)"
+)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Apply pending database migrations, then open the connection pool; close the pool on shutdown."""
+    """Check the settings, migrate the database and open the connection pool; close the pool on shutdown.
+
+    Raises:
+        ValueError: If ``NIMBLE_URL`` is set to an invalid value, or a database setting is missing or invalid.
+        MigrationError: If a migration cannot be planned or applied.
+        psycopg.Error: If connecting to the database fails.
+    """
+    if get_nimble_url() is None:
+        logger.info("NIMBLE_URL is not set; the Nimble triage step is off.")
+    if not is_openai_configured():
+        logger.info("OPENAI_API_KEY is not set; the OpenAI fallback is off.")
+
     pool_config = build_pool_config()
     try:
         apply_migrations(pool_config.conn_info, logger)
@@ -93,33 +115,74 @@ def _fail_request(request_logger: RequestLogger, request_id: str, exc: Exception
     return HTTPException(status_code=status_code, detail=INTERNAL_ERROR_DETAIL)
 
 
+def _fail_unavailable(request_logger: RequestLogger, request_id: str, exc: UpstreamUnavailableError) -> HTTPException:
+    """Record a request that needed an unavailable service, and build the 503 sent to the client.
+
+    The response carries only the generic message; the stored message adds the service and the reason.
+    """
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    request_logger.log_completed(
+        request_id, status_code, error_message=f"{SERVICE_UNAVAILABLE_DETAIL} ({exc.cause_label})"
+    )
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes({"upstream.service": exc.service, "upstream.reason": exc.reason})
+    return HTTPException(status_code=status_code, detail=SERVICE_UNAVAILABLE_DETAIL)
+
+
 def _public_request_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Return a request history entry safe to show any client.
 
-    Server errors recorded with exception text (the stored message does not start with the generic one) get the
-    generic message instead.
+    A server error keeps its stored message only when it has the exact shape this API writes (the generic text plus
+    the exception class, or the 503 text plus the service and reason); anything else, such as exception text
+    stored by earlier versions, is replaced with the generic text.
     """
     result_status = entry.get("result_status")
     error_message = entry.get("error_message")
     if result_status is None or result_status < status.HTTP_500_INTERNAL_SERVER_ERROR or not error_message:
         return entry
-    if error_message.startswith(INTERNAL_ERROR_DETAIL):
+    if _PUBLIC_500_MESSAGE.fullmatch(error_message) or _PUBLIC_503_MESSAGE.fullmatch(error_message):
         return entry
+    if result_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+        return {**entry, "error_message": SERVICE_UNAVAILABLE_DETAIL}
     return {**entry, "error_message": INTERNAL_ERROR_DETAIL}
+
+
+def _record_identification(result: IdentificationResult) -> None:
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.set_attributes(
+            {
+                "identification.outcome": result.outcome.value,
+                "identification.decided_by": result.decided_by or "none",
+                "identification.cache_hit": result.cache_hit,
+            }
+        )
 
 
 @logger.trace("_prepare_media_info_response")
 def _prepare_media_info_response(
-    request_logger: RequestLogger, media_data: MediaData | None, request_id: str
+    request_logger: RequestLogger,
+    media_data: MediaData | None,
+    request_id: str,
+    identification: IdentificationResult | None = None,
 ) -> Response:
+    outcome = identification.outcome.value if identification else None
+    decided_by = identification.decided_by if identification else None
     if not media_data:
         status_code = status.HTTP_204_NO_CONTENT
-        request_logger.log_completed(request_id, status_code, None)
+        request_logger.log_completed(request_id, status_code, None, outcome=outcome, decided_by=decided_by)
         return Response(status_code=status_code)
 
     status_code = status.HTTP_200_OK
     media_id = media_data.get("id")
-    request_logger.log_completed(request_id, status_code, str(media_id) if media_id is not None else None)
+    request_logger.log_completed(
+        request_id,
+        status_code,
+        str(media_id) if media_id is not None else None,
+        outcome=outcome,
+        decided_by=decided_by,
+    )
 
     serializable_result = {
         k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
@@ -140,19 +203,17 @@ def _sanitize_filename(filename: str) -> str:
 
 
 @logger.trace("_process_guess_filename")
-def _process_guess_filename(identifier: MediaIdentifier, it: str, is_retrying: bool = False) -> MediaData | None:
-    try:
-        filename = _sanitize_filename(it)
+def _process_guess_filename(identifier: MediaIdentifier, it: str) -> IdentificationResult:
+    """Identify a file name; when the full path leaves it unidentified, try the bare file name once."""
+    filename = _sanitize_filename(it)
+    result = identifier.get_media_info_by_filename(filename)
 
-        if is_retrying:
-            return identifier.get_media_info_by_filename(Path(filename).name)
+    bare_name = Path(filename).name
+    if result.outcome == IdentificationOutcome.UNIDENTIFIED and bare_name != filename:
+        logger.info(f"Not identified from the full path; retrying with the file name only for: {it!r}")
+        return identifier.get_media_info_by_filename(bare_name)
 
-        return identifier.get_media_info_by_filename(filename)
-    except PipelineExecutionError as e:
-        if is_retrying:
-            raise
-        logger.warning(f"Pipeline failed for full path ({e}). Retrying with filename only for: {it!r}")
-        return _process_guess_filename(identifier, it, True)
+    return result
 
 
 @app.get("/api/guess")
@@ -165,8 +226,9 @@ def guess_filename(
 ) -> Response:
     """Identify the media a file name refers to.
 
-    Returns 200 with the media record, 204 when nothing could be identified, 400 when ``it`` is missing, and 500
-    (generic message) when identification fails.
+    Returns 200 with the media record; 204 when the file is not a movie or TV release, or nothing could identify
+    it; 400 when ``it`` is missing; 503 (generic message) when a service the answer needs is unavailable, so the
+    client can retry later; and 500 (generic message) when identification fails otherwise.
     """
     client_ip = _client_ip(request)
     span = trace.get_current_span()
@@ -180,12 +242,16 @@ def guess_filename(
     set_request_id(request_id)
 
     try:
-        media_data = _process_guess_filename(identifier, it)
+        result = _process_guess_filename(identifier, it)
+    except UpstreamUnavailableError as exc:
+        logger.warning(f"Request {request_id}: identifying {it!r} needs an unavailable service ({exc.cause_label})")
+        raise _fail_unavailable(request_logger, request_id, exc) from exc
     except Exception as exc:
         logger.exception(f"Request {request_id}: identifying {it!r} failed")
         raise _fail_request(request_logger, request_id, exc) from exc
 
-    return _prepare_media_info_response(request_logger, media_data, request_id)
+    _record_identification(result)
+    return _prepare_media_info_response(request_logger, result.media, request_id, result)
 
 
 @app.get("/api/media-info")
@@ -207,8 +273,8 @@ def get_media_info(
     """Return the media record for known metadata, skipping file name identification.
 
     ``media_type``, ``year`` and ``title`` are required, plus ``season`` and ``episode`` for TV. Returns 200 with
-    the record, 204 when nothing matched, 400 on missing or invalid parameters, 422 on out-of-range numbers, and
-    500 (generic message) when the lookup fails.
+    the record, 204 when nothing matched, 400 on missing or invalid parameters, 422 on out-of-range numbers, 503
+    (generic message) when TMDB is unavailable, and 500 (generic message) when the lookup fails otherwise.
     """
     client_ip = _client_ip(request)
     span = trace.get_current_span()
@@ -271,18 +337,22 @@ def get_media_info(
     set_request_id(request_id)
 
     try:
-        media_data = identifier.get_media_info(
+        result = identifier.get_media_info(
             media_type=normalized_media_type,
             year=year,
             title=title,
             season=season,
             episode=episode,
         )
+    except UpstreamUnavailableError as exc:
+        logger.warning(f"Request {request_id}: media info lookup needs an unavailable service ({exc.cause_label})")
+        raise _fail_unavailable(request_logger, request_id, exc) from exc
     except Exception as exc:
         logger.exception(f"Request {request_id}: media info lookup failed")
         raise _fail_request(request_logger, request_id, exc) from exc
 
-    return _prepare_media_info_response(request_logger, media_data, request_id)
+    _record_identification(result)
+    return _prepare_media_info_response(request_logger, result.media, request_id, result)
 
 
 @app.get("/api/media-info/{media_id}")
@@ -331,9 +401,10 @@ def get_statistics(
         int, Query(description="Number of recent requests to return", ge=1, le=MAX_STATISTICS_REQUESTS)
     ] = 100,
 ) -> list[dict[str, Any]]:
-    """Return the most recent requests, newest first, with status, result id, timing and error message.
+    """Return the most recent requests, newest first, with status, result id, timing, error message, outcome and
+    deciding step.
 
-    Server errors only ever show the generic error message.
+    A server error shows only the generic message, plus the exception class (500) or the service and reason (503).
     """
     try:
         return [_public_request_entry(entry) for entry in request_logger.get_recent_requests(num_requests)]

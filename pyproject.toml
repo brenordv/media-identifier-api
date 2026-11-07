@@ -11,6 +11,7 @@ dependencies = [
     "opentelemetry-api==1.45.2",
     "psycopg[binary]==3.3.8",
     "psycopg-pool==3.3.3",
+    "pydantic==2.14.3",
     "python-dotenv==1.2.4",
     "raccoontools-db==1.1.0",
     "requests==2.34.2",
@@ -38,8 +39,6 @@ select = ["E", "F", "W", "I", "N", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # main.py loads .env before importing src modules, because several of them read the environment at import time.
 "main.py" = ["E402"]
-# The AI function sources are the OpenAI prompts; their comment lines are sent verbatim.
-"src/media_identifiers/ai_functions/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.14"

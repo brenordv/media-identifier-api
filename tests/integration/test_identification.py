@@ -8,12 +8,15 @@ import os
 from collections.abc import Iterator
 
 import pytest
+from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.integration
 
 if os.environ.get("MEDIA_IDENTIFIER_RUN_INTEGRATION") != "1":
     pytest.skip("Set MEDIA_IDENTIFIER_RUN_INTEGRATION=1 to run the integration suite.", allow_module_level=True)
+
+load_dotenv()
 
 
 @pytest.fixture(scope="module")
@@ -56,3 +59,45 @@ def test_media_info_endpoint_movie_metadata(client: TestClient) -> None:
     response = client.get("/api/media-info", params={"title": "Possessed", "year": 2000, "media_type": "movie"})
 
     assert response.status_code in (200, 204)
+
+
+@pytest.mark.parametrize(
+    ("file_path", "choice"),
+    [
+        ("/watch/Retro.Games/Nintendo/Console/NES/Balloon Fight (JU) [o5].nes", "other"),
+        ("Pulse.2.Afterlife.2008.1080p.BluRay.x264-GUACAMOLE/gua-pulse2.2008-1080p.mkv", "movie"),
+    ],
+)
+def test_nimble_answers_the_production_triage_question(file_path: str, choice: str) -> None:
+    from src.media_identifiers.nimble_classifier import classify_media_kind, get_nimble_url
+
+    if get_nimble_url() is None:
+        pytest.skip("NIMBLE_URL is not set.")
+
+    verdict = classify_media_kind(file_path)
+
+    assert verdict is not None
+    assert verdict.choice == choice
+
+
+def test_openai_answers_the_production_schema_and_prompt() -> None:
+    from src.media_identifiers.openai_identifier import identify_media_with_openai, is_openai_configured
+
+    if not is_openai_configured():
+        pytest.skip("OPENAI_API_KEY is not set.")
+
+    identification = identify_media_with_openai(
+        "Pulse.2.Afterlife.2008.1080p.BluRay.x264-GUACAMOLE/gua-pulse2.2008-1080p.mkv",
+        {
+            "guessit": {"media_type": "movie", "title": "gua pulse2", "year": 2008, "season": None, "episode": None},
+            "nimble": None,
+            "trigger": "tmdb_no_match",
+            "searched": {"title": "gua pulse2", "year": 2008},
+        },
+    )
+
+    assert identification.result == "answered"
+    assert identification.guess is not None
+    assert identification.guess.media_type == "movie"
+    assert identification.guess.title is not None
+    assert "pulse 2" in identification.guess.title.lower()

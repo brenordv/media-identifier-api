@@ -3,7 +3,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from src.models.media_info import MediaData
-from src.repositories.media_info_cache import MediaInfoCache
+from src.repositories.media_info_cache import CACHE_COLUMNS, MediaInfoCache
 from tests.fakes import FakePool
 
 ROW_ID = "8f6c5c86-7c7f-4c7b-9f32-6e8f0b7f3f11"
@@ -44,6 +44,21 @@ def test_cache_data_inserts_only_cache_columns_and_returns_the_new_id() -> None:
     assert values == ["Possessed", 26620, "Possessed", "Possessed", "movie", 2000, False, True]
     assert stored["id"] == ROW_ID
     assert pool.cursor.row_factories == [dict_row]
+
+
+@pytest.mark.parametrize(("used_nimble", "written"), [(None, False), (True, True)])
+def test_cache_data_writes_used_nimble_as_a_boolean(used_nimble: bool | None, written: bool) -> None:
+    pool = FakePool(rows=[{"id": ROW_ID}])
+    cache = MediaInfoCache(pool_getter=pool.getter())
+
+    record = {**_movie(), "used_nimble": used_nimble}
+
+    cache.cache_data(record)
+
+    query, values = pool.cursor.executed[0]
+    columns = [column for column in CACHE_COLUMNS if column in record]
+    assert '"used_nimble"' in _sql_text(query)
+    assert values[columns.index("used_nimble")] is written
 
 
 def test_cache_data_conflict_returns_the_row_cached_first() -> None:

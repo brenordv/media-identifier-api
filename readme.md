@@ -5,7 +5,7 @@ A RESTFUL API that identifies the media based on the filename.
 This project was created for educational purposes, showing how to:
 1. Making different platforms work in tandem.
 2. Applying caching to the system. (In this case, we don't need to worry about stale data, but still.)
-3. How to use AI functions to get deterministic responses.
+3. How to use language models as a last resort, with structured answers that another service confirms.
 
 While I understand that an increasing number of poeple consider that 'if buying is not owning, pirating is not stealing,'
 this API is not processing files, but working only with the filenames. You can create any scene-release filenames and 
@@ -13,19 +13,44 @@ test it as you like.
 > TL;DR: Educational purposes, not condoning anything illegal. You do whatever you want at your own risk.
 
 ## Request flow
+The chart below shows the 1.x flow; the list describes the current one.
+
 ![Data flow chart](data-flow.png)
 
-The happy path for identifying the media is:
-- We try to guess data using GuessIT
-- If we have the data cached, we return that;
-- Otherwise, we use TMDB to identify it.
-- If that fails, we use some AI Functions with OpenAI to identify the media.
-- Then we call TMDB again to get details for the media;
-- And again to get the external IDs (like IMDB id, etc.)
-- Lastly, we cache this info, so we don't have to do the work twice.
-- And return the data to the user.
+Identifying a file name goes like this:
+- guessit reads the title, year, season and episode from the name.
+- If that media is cached, the cached record is returned.
+- The Nimble classifier (optional, see `NIMBLE_URL`) decides whether the file is a movie, a TV release or neither.
+  A confident "neither" (games, ROMs, images, documents) ends the request with 204. A confident movie or TV verdict
+  sets the media type, even against guessit.
+- When the media type is still uncertain, the name has no title, or a TV file has no season, OpenAI is asked once,
+  with one structured call, what the name refers to.
+- TMDB is searched for the title. When it finds nothing and OpenAI has not been asked yet, OpenAI suggests the title
+  TMDB would list and TMDB is searched again.
+- TMDB then provides the details and the external ids (IMDb and others), the record is cached, and it is returned.
 
-We also log all requests coming in, the results, and if we use OpenAI, we log the tokens used.
+A file nobody could identify ends with 204 and is recorded for review (see below). We log every request and its
+outcome, and the tokens of every OpenAI call.
+
+### Responses
+- `200`: the media record.
+- `204`: the file is not a movie or TV release, or nothing could identify it.
+- `503`: a service the answer needs (TMDB, or OpenAI when it was the remaining option) is unavailable. Retry later.
+- `500`: anything else went wrong.
+
+### Reviewing files nobody could identify
+`request_history.outcome` holds each request's verdict (`identified`, `not_media` or `unidentified`), and
+`request_history.decided_by` the step that settled the media type (`guessit`, `nimble`, `openai`, or `request` for
+`/api/media-info`). `/api/statistics` returns both. To list the files to look at:
+
+```sql
+SELECT received_at, filename
+FROM request_history
+WHERE outcome = 'unidentified' AND endpoint = '/api/guess'
+ORDER BY received_at DESC;
+```
+
+`cached_media.used_nimble` marks the records whose media type Nimble set.
 
 ## Endpoints
 
@@ -50,11 +75,16 @@ TMDB_API_KEY=your-tmdb-api-read-access-token
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4o-mini
 OPENAI_ORGANIZATION=your-openai-organization-id
+NIMBLE_URL=http://your-nimble-host:11434
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 - `TMDB_API_KEY` is TMDB's "API Read Access Token" (it is sent as a bearer token).
-- `OPENAI_MODEL` defaults to `gpt-4o-mini`, which works well here; other models work too.
+- `OPENAI_API_KEY` is optional: without it the OpenAI fallback is off. The API has no authentication or rate limit,
+  so set a spend limit on the key's OpenAI project.
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`; the model must support Structured Outputs.
+- `NIMBLE_URL` is optional: the base URL of the Ollama server running the Nimble classifier. Without it the Nimble
+  step is off. An invalid value (not http or https, no host, or credentials in it) stops the API at startup.
 - `POSTGRES_DB` defaults to `extended_media_info`.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is required: logs and traces are exported to that OTLP/HTTP collector.
 - Keep comments on their own lines and leave values unquoted: Docker's `--env-file` treats a `#` after a value,

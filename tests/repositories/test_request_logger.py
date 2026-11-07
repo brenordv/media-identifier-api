@@ -41,5 +41,18 @@ def test_get_recent_requests_returns_ids_as_text() -> None:
 
     assert requests[0]["id"] == str(REQUEST_ID)
     assert requests[0]["result_media_id"] == str(MEDIA_ID)
-    assert pool.cursor.executed[0][1] == (5,)
+    statement, params = pool.cursor.executed[0]
+    assert "outcome, decided_by" in statement
+    assert params == (5,)
     assert pool.cursor.row_factories == [dict_row]
+
+
+def test_log_completed_records_the_outcome_and_the_deciding_step() -> None:
+    pool = FakePool()
+    request_logger = RequestLogger(pool_getter=pool.getter())
+
+    request_logger.log_completed(str(REQUEST_ID), 204, outcome="not_media", decided_by="nimble")
+
+    statement, params = pool.cursor.executed[0]
+    assert "outcome = %s, decided_by = %s" in statement
+    assert params == (204, None, None, "not_media", "nimble", str(REQUEST_ID))

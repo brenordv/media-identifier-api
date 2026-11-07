@@ -1,8 +1,9 @@
 import logging
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, get_args
 
 import psycopg
 import pytest
@@ -17,6 +18,7 @@ from src.database.migrations import (
     discover_migrations,
     plan_migrations,
 )
+from src.media_identifiers.pipeline import DecidedBy, IdentificationOutcome
 from src.utils import get_otel_log_handler
 
 CONNINFO = "host=db.example port=5432 user=media password=s3cret dbname=media"
@@ -121,7 +123,20 @@ def test_repository_migrations_are_discovered_in_order() -> None:
         "0001_baseline",
         "0002_cache_identity_per_media_type",
         "0003_remove_tv_rows_keyed_by_series_id",
+        "0004_identification_outcome_and_used_nimble",
     ]
+
+
+def test_request_history_checks_accept_exactly_the_values_the_code_writes() -> None:
+    sql_text = (MIGRATIONS_DIR / "0004_identification_outcome_and_used_nimble.sql").read_text(encoding="utf-8")
+
+    def allowed(column: str) -> set[str]:
+        match = re.search(rf"CHECK \({column} IN \(([^)]*)\)\)", sql_text)
+        assert match is not None
+        return set(re.findall(r"'([a-z_]+)'", match.group(1)))
+
+    assert allowed("outcome") == {outcome.value for outcome in IdentificationOutcome}
+    assert allowed("decided_by") == set(get_args(DecidedBy))
 
 
 def test_discover_migrations_orders_by_version(migrations_dir: Path) -> None:

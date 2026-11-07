@@ -4,11 +4,13 @@ import os
 import random
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from opentelemetry import trace
 
 from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.errors import UpstreamUnavailableError
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaData, MediaInfoBuilder
 from src.utils import get_otel_log_handler, is_valid_year
@@ -34,6 +36,8 @@ def request_tmdb_movie_details(tmdb_id: int) -> MediaData | None:
 
     Raises:
         ValueError: If ``tmdb_id`` is empty.
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -64,6 +68,8 @@ def request_tmdb_series_details(tmdb_series_id: int) -> MediaData | None:
 
     Raises:
         ValueError: If ``tmdb_series_id`` is empty.
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -102,6 +108,8 @@ def request_tmdb_series_episode_details(tmdb_series_id: int, season: int, episod
 
     Raises:
         ValueError: If the series id is empty, or the season or episode is missing.
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -154,6 +162,8 @@ def request_tmdb_external_ids(
 
     Raises:
         ValueError: If ``tmdb_id`` is empty or ``media_type`` is neither movie nor TV.
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -202,7 +212,11 @@ def identify_media_with_tmdb_movie_search(query: str | None, year: int | None = 
     """Search movies by title (and year when plausible) and return the first match.
 
     Returns:
-        The first match as a movie record, or None.
+        The first match as a movie record, or None when nothing matched.
+
+    Raises:
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -218,7 +232,12 @@ def identify_media_with_tmdb_series_search(query: str | None, year: int | None =
     """Search series by title (and first-air year when plausible) and return the first match.
 
     Returns:
-        The first match as a TV record with the series id in ``tmdb_series_id`` (``tmdb_id`` empty), or None.
+        The first match as a TV record with the series id in ``tmdb_series_id`` (``tmdb_id`` empty), or None when
+        nothing matched.
+
+    Raises:
+        UpstreamUnavailableError: If TMDB is unavailable.
+        RuntimeError: If TMDB rejects the request.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -244,7 +263,7 @@ def _identify_media_with_tmdb_by_type(query: str | None, media_type: str, year: 
     response_data = _make_request(f"{TMDB_API_BASE_URL}/search/{media_type}", params)
 
     if not response_data or not response_data.get("results"):
-        _logger.warning(f"No results found for query: {query!r}")
+        _logger.debug(f"No results found for query: {query!r}")
         return None
 
     return _get_record_builder_for_tmdb_data(response_data["results"][0])
@@ -287,22 +306,25 @@ def _make_request(url: str, params: dict[str, Any] | None = None) -> dict[str, A
     """GET a TMDB endpoint, retrying once after a 429.
 
     Returns:
-        The decoded JSON body, or None when the request fails, times out, or returns invalid JSON (each logged).
+        The decoded JSON body, or None when TMDB answers 404 (the resource does not exist).
+
+    Raises:
+        ValueError: If the TMDB API key is not configured.
+        UpstreamUnavailableError: If TMDB times out, cannot be reached, still answers 429 after the retry, answers 5xx,
+            or returns a body that is not JSON.
+        RuntimeError: If TMDB rejects the request with another 4xx (an invalid key, a malformed request).
     """
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("http.url", url)
-    response: requests.Response | None = None
+
+    headers = _prepare_tmdb_headers()
+    prepared_params = _prepare_tmdb_parameters(params)
+
+    _logger.debug(f"TMDB API: About to make request to url: [{url}] Params: [{prepared_params!r}]")
 
     try:
-        headers = _prepare_tmdb_headers()
-        prepared_params = _prepare_tmdb_parameters(params)
-
-        _logger.debug(f"TMDB API: About to make request to url: [{url}] Params: [{prepared_params!r}]")
-
         response = requests.get(url, params=prepared_params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        _logger.debug(f"TMDB API: Got response [{response.status_code}] Body: [{response.text}]")
 
         if response.status_code == 429:
             debounce_time = _get_debounce_time()
@@ -311,26 +333,28 @@ def _make_request(url: str, params: dict[str, Any] | None = None) -> dict[str, A
             time.sleep(debounce_time)
 
             response = requests.get(url, params=prepared_params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.Timeout as e:
+        raise UpstreamUnavailableError("tmdb", "timeout") from e
+    except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+        raise UpstreamUnavailableError("tmdb", "connection") from e
 
-        response.raise_for_status()
+    _logger.debug(f"TMDB API: Got response [{response.status_code}] Body: [{response.text}]")
 
+    status_code = response.status_code
+    if status_code == 404:
+        return None
+    if status_code == 429:
+        raise UpstreamUnavailableError("tmdb", "rate_limited")
+    if status_code >= 500:
+        raise UpstreamUnavailableError("tmdb", "server_error")
+    if status_code >= 400:
+        raise RuntimeError(f"TMDB rejected the request with HTTP {status_code} for {urlsplit(url).path}")
+
+    try:
         body: dict[str, Any] = response.json()
-        return body
-
-    except requests.Timeout:
-        _logger.error(f"TMDB API request timed out for url: {url}")
-
-    except requests.HTTPError as e:
-        _logger.error(f"TMDB API HTTP error for url: {url}: {e}")
-
-    except requests.RequestException as e:
-        status_code = response.status_code if response is not None else "unknown"
-        _logger.error(f"TMDB API request failed with status [{status_code}] for url: [{url}]: {e}")
-
-    except ValueError as e:
-        _logger.error(f"Failed to parse TMDB API response for url: {url}: {e}")
-
-    return None
+    except requests.JSONDecodeError as e:
+        raise UpstreamUnavailableError("tmdb", "invalid_response") from e
+    return body
 
 
 def _extract_year_from_tmdb_multi_data(tmdb_multi_data: dict[str, Any]) -> int | None:

@@ -22,6 +22,10 @@ All notable changes to this project are documented in this file. The format foll
 - `/api/statistics` accepts `num_requests` from 1 to 1000; `it` and `title` accept up to 1024 characters.
 - `/api/media-info` accepts `season` from 0 (specials) to 9999 and `episode` from 1 to 9999; values outside those
   ranges get `422`.
+- `/api/guess` and `/api/media-info` answer `204` when a file is not a movie or TV release, or when nothing could
+  identify it (both used to be `500`), and `503` when TMDB, or OpenAI when it was the remaining option, is
+  unavailable, so a client can tell "nothing found" from "try again later".
+- Records gain a `used_nimble` key.
 
 ### Added
 
@@ -34,6 +38,14 @@ All notable changes to this project are documented in this file. The format foll
   - `0002_cache_identity_per_media_type`: `UNIQUE (tmdb_id)` becomes `UNIQUE (tmdb_id, media_type)`.
   - `0003_remove_tv_rows_keyed_by_series_id`: deletes TV rows whose `tmdb_id` is their series id and adds a CHECK
     constraint that keeps them out. Those episodes are identified again on their next request.
+  - `0004_identification_outcome_and_used_nimble`: `cached_media.used_nimble`, and `request_history.outcome`
+    (`identified`, `not_media`, `unidentified`) and `request_history.decided_by` (`guessit`, `nimble`, `openai`,
+    `request`).
+- Nimble triage (optional, `NIMBLE_URL`): the Nimble classifier decides whether a file is a movie, a TV release or
+  neither. A confident "neither" ends the request with `204` before any TMDB or OpenAI call; a confident movie or TV
+  verdict sets the media type.
+- Files nobody could identify are recorded with `outcome = 'unidentified'` for review; `/api/statistics` returns
+  `outcome` and `decided_by`.
 - `.env.example` with every setting.
 - Hermetic unit test suite (no database, TMDB, OpenAI or telemetry collector needed) and an opt-in integration
   suite: `MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration`.
@@ -51,6 +63,12 @@ All notable changes to this project are documented in this file. The format foll
   could match unrelated titles.
 - Requests to `/api/health` are no longer traced.
 - `request_history` stores the validated `/api/media-info` parameters instead of the raw query string.
+- OpenAI is a last resort with one structured call (Structured Outputs, at most one per attempt): it runs when the
+  media type is uncertain, the name has no title, a TV file has no season, or TMDB found nothing for the title, and
+  its answer counts only when TMDB then finds a match. When OpenAI is unavailable but guessit's reading can still be
+  searched, the request goes on without it and answers `503` only if nothing identifies the file. The prompt is
+  plain text with consistent rules and examples.
+- The bare-file-name retry of `/api/guess` runs when the full path leaves a file unidentified.
 
 ### Fixed
 
@@ -66,7 +84,9 @@ All notable changes to this project are documented in this file. The format foll
   recorded (they were always 0).
 - Identified media without a release year (or another required value) is returned instead of failing with a 500.
 - `is_valid_year` accepted years from 195; the range starts at 1888.
-- The TMDB error log reports the 429 status when a connection error follows a rate-limit retry.
+- A TMDB timeout, outage or rate limit looked like "no match"; it now ends the request with `503`, and a record is
+  never cached without the external ids an outage hid.
+- Files TMDB could not match (game ROMs, images) were answered with `500`, so clients retried them; they get `204`.
 - guessit's fallback input no longer includes download-folder names such as `data`.
 - Requests without client address information no longer fail.
 - `run-image.sh` and `build-image.sh` are executable, and the readme's Windows build command tags the image the run
@@ -76,6 +96,8 @@ All notable changes to this project are documented in this file. The format foll
 
 - `requirements.txt`, gunicorn, and the unused `pipeline_builders.py`, `general_tasks.py` and
   `MediaInfoCache.update_cache`.
+- The `ai_functions` prompts (the source of four Python functions sent to OpenAI) and the separate OpenAI calls for
+  media type, title and season/episode.
 
 ### Security
 
@@ -83,6 +105,9 @@ All notable changes to this project are documented in this file. The format foll
 - Error responses and `/api/statistics` no longer expose exception text (database, TMDB or OpenAI details).
   Statistics show the generic message for server errors recorded by 1.x as well; those rows stay unchanged in the
   database.
+- The file name reaches OpenAI as JSON data the instructions mark as data. OpenAI's answer is validated; a title it
+  suggests identifies media only through a TMDB match carrying the same title (or a record already cached under that
+  title), and a retitled record is cached under that title, never under guessit's reading.
 
 ## [1.0.0]
 

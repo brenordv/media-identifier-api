@@ -22,6 +22,10 @@ def test_merge_media_info_without_existing_copies_the_new_record() -> None:
     assert merged is not new
 
 
+def test_with_used_nimble_sets_the_flag_in_the_record() -> None:
+    assert MediaInfoBuilder().with_used_nimble(True).build()["used_nimble"] is True
+
+
 def test_with_genres_maps_tmdb_ids_and_named_genres() -> None:
     media = MediaInfoBuilder().with_genres([18, 99999, {"name": "Thriller"}, {"id": 1}]).build()
 

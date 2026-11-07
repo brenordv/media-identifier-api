@@ -1,10 +1,12 @@
-import logging
 from typing import Any
 
 import pytest
 import requests
 
 from src.media_identifiers import tmdb_identifier
+from src.media_identifiers.errors import UpstreamUnavailableError
+
+SERIES_URL = "https://api.themoviedb.org/3/tv/95480"
 
 
 class FakeResponse(requests.Response):
@@ -39,34 +41,67 @@ def _queue_responses(monkeypatch: pytest.MonkeyPatch, *outcomes: requests.Respon
 def test_make_request_returns_the_decoded_body(monkeypatch: pytest.MonkeyPatch) -> None:
     _queue_responses(monkeypatch, FakeResponse(200, '{"id": 95480}'))
 
-    assert tmdb_identifier._make_request("https://api.themoviedb.org/3/tv/95480") == {"id": 95480}
+    assert tmdb_identifier._make_request(SERIES_URL) == {"id": 95480}
 
 
 def test_make_request_retries_once_after_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _queue_responses(monkeypatch, FakeResponse(429), FakeResponse(200, '{"id": 95480}'))
 
-    result = tmdb_identifier._make_request("https://api.themoviedb.org/3/tv/95480")
+    result = tmdb_identifier._make_request(SERIES_URL)
 
     assert result == {"id": 95480}
     assert len(calls) == 2
 
 
-def test_make_request_connection_error_after_rate_limit_logs_the_429_status(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    _queue_responses(monkeypatch, FakeResponse(429), requests.ConnectionError("connection reset"))
-
-    with caplog.at_level(logging.ERROR):
-        result = tmdb_identifier._make_request("https://api.themoviedb.org/3/tv/95480")
-
-    assert result is None
-    assert any("status [429]" in record.getMessage() for record in caplog.records)
-
-
-def test_make_request_http_error_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_make_request_not_found_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     _queue_responses(monkeypatch, FakeResponse(404))
 
     assert tmdb_identifier._make_request("https://api.themoviedb.org/3/movie/0") is None
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "reason"),
+    [
+        ((requests.Timeout("read timed out"),), "timeout"),
+        ((requests.ConnectionError("connection reset"),), "connection"),
+        ((FakeResponse(429), requests.ConnectionError("connection reset")), "connection"),
+        ((requests.exceptions.ChunkedEncodingError("connection broken"),), "connection"),
+        ((FakeResponse(429), FakeResponse(429)), "rate_limited"),
+        ((FakeResponse(503),), "server_error"),
+        ((FakeResponse(200, "<html>maintenance</html>"),), "invalid_response"),
+    ],
+)
+def test_make_request_unavailable_tmdb_raises_upstream_unavailable_with_the_reason(
+    monkeypatch: pytest.MonkeyPatch, outcomes: tuple[requests.Response | Exception, ...], reason: str
+) -> None:
+    _queue_responses(monkeypatch, *outcomes)
+
+    with pytest.raises(UpstreamUnavailableError) as raised:
+        tmdb_identifier._make_request(SERIES_URL)
+
+    assert (raised.value.service, raised.value.reason) == ("tmdb", reason)
+
+
+@pytest.mark.parametrize("status_code", [400, 401])
+def test_make_request_rejected_request_raises_runtime_error_naming_status_and_path(
+    monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    _queue_responses(monkeypatch, FakeResponse(status_code))
+
+    with pytest.raises(RuntimeError, match=rf"HTTP {status_code} for /3/tv/95480$") as raised:
+        tmdb_identifier._make_request(SERIES_URL, {"query": "Slow Horses"})
+
+    assert not isinstance(raised.value, UpstreamUnavailableError)
+
+
+def test_make_request_without_api_key_raises_value_error_before_calling_tmdb(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TMDB_API_KEY")
+    calls = _queue_responses(monkeypatch)
+
+    with pytest.raises(ValueError, match="TMDB API key"):
+        tmdb_identifier._make_request(SERIES_URL)
+
+    assert calls == []
 
 
 def test_request_tmdb_external_ids_rejects_unknown_media_type() -> None:

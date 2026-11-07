@@ -1,14 +1,39 @@
 """Entry point of identification: runs the pipeline for a request and caches what it identifies."""
 
+from dataclasses import dataclass
+
 from src.media_identifiers.constants import MOVIE, TV
-from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_record_of_media_type, is_tv
-from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
+from src.media_identifiers.media_type_helpers import is_movie, is_record_of_media_type, is_tv
+from src.media_identifiers.pipeline import (
+    DecidedBy,
+    IdentificationOutcome,
+    PipelineContext,
+    PipelineController,
+    build_pipeline,
+)
 from src.models.media_identification_request import MediaIdentificationRequest
 from src.models.media_info import MediaData
 from src.repositories.media_info_cache import MediaInfoCache
 from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("MediaIdentifier")
+
+
+@dataclass(frozen=True)
+class IdentificationResult:
+    """The answer to one identification request.
+
+    Attributes:
+        media: The media record when the outcome is ``identified``, None otherwise.
+        outcome: The verdict.
+        decided_by: The step that settled the media type or the ``not_media`` verdict; None when unidentified.
+        cache_hit: Whether a cache lookup ended the pipeline.
+    """
+
+    media: MediaData | None
+    outcome: IdentificationOutcome
+    decided_by: DecidedBy | None = None
+    cache_hit: bool = False
 
 
 class MediaIdentifier:
@@ -23,15 +48,18 @@ class MediaIdentifier:
         self._logger = _logger
 
     @_logger.trace("identify")
-    def identify(self, request: MediaIdentificationRequest) -> MediaData | None:
+    def identify(self, request: MediaIdentificationRequest) -> IdentificationResult:
         """Run the identification pipeline.
 
         Returns:
-            The cached record when one matched, the identified (and, when possible, newly cached) record, or None
-            when nothing valid was identified.
+            ``identified`` with the cached record, or with the TMDB-matched record (cached when it can be);
+            ``not_media`` when the file is not a movie or TV release; ``unidentified`` when no step produced a TMDB
+            match (logged at INFO with what each step concluded).
 
         Raises:
-            PipelineExecutionError: If a pipeline step fails.
+            UpstreamUnavailableError: If TMDB is unavailable, or OpenAI is unavailable and the run could not identify
+                the media without it.
+            PipelineExecutionError: If a pipeline step raises any other error.
             RuntimeError: If the cache cannot be read or written.
         """
         self._logger.debug(f"Starting identification: {request.to_logging_payload()!r}")
@@ -43,22 +71,33 @@ class MediaIdentifier:
 
         if result.cached is not None:
             self._logger.debug("Returning cached result from pipeline.")
-            return result.cached
+            return IdentificationResult(result.cached, IdentificationOutcome.IDENTIFIED, result.decided_by, True)
+
+        if result.outcome == IdentificationOutcome.NOT_MEDIA:
+            return IdentificationResult(None, IdentificationOutcome.NOT_MEDIA, result.decided_by)
 
         media = result.media
-        if not media:
-            self._logger.debug("Pipeline produced no media data.")
-            return None
+        if media and self._is_matched_on_tmdb(media):
+            return IdentificationResult(self._persist_media(media), IdentificationOutcome.IDENTIFIED, result.decided_by)
 
+        if context.deferred_upstream_error is not None:
+            raise context.deferred_upstream_error
+
+        subject = request.file_path or request.to_logging_payload()
+        self._logger.info(f"Unidentified {subject!r}; steps: {context.step_readings!r}")
+        return IdentificationResult(None, IdentificationOutcome.UNIDENTIFIED)
+
+    @staticmethod
+    def _is_matched_on_tmdb(media: MediaData) -> bool:
         media_type = media.get("media_type")
-        if not is_media_type_valid(media_type):
-            self._logger.warning(f"Media type [{media_type!r}] is not valid. Skipping persistence.")
-            return None
-
-        return self._persist_media(media)
+        if is_movie(media_type):
+            return media.get("tmdb_id") is not None
+        if is_tv(media_type):
+            return media.get("tmdb_series_id") is not None
+        return False
 
     @_logger.trace("get_media_info_by_filename")
-    def get_media_info_by_filename(self, file_path: str) -> MediaData | None:
+    def get_media_info_by_filename(self, file_path: str) -> IdentificationResult:
         """Identify media from a file name or path (see :meth:`identify`)."""
         request = MediaIdentificationRequest.from_filename(file_path)
         return self.identify(request)
@@ -71,7 +110,7 @@ class MediaIdentifier:
         title: str,
         season: int | None,
         episode: int | None,
-    ) -> MediaData | None:
+    ) -> IdentificationResult:
         """Identify media from known metadata (see :meth:`identify`)."""
         request = MediaIdentificationRequest.from_metadata(
             media_type=media_type,

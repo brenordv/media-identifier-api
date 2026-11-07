@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any, Self, cast
 
+from src.converters.create_searchable_reference import create_searchable_reference
 from src.models.media_info import MediaData
 from src.repositories.base_repository import PoolGetter
 from src.repositories.media_info_cache import MediaInfoCache
@@ -90,8 +91,15 @@ class InMemoryCache(MediaInfoCache):
         if obj is None or obj.get("title") is None:
             return None
         title = str(obj["title"]).lower()
+        references = {
+            str(reference).lower()
+            for reference in (create_searchable_reference(str(obj["title"])), obj.get("searchable_reference"))
+            if reference
+        }
         for record in self.records:
-            if str(record.get("title", "")).lower() != title or not self._type_matches(record, obj["media_type"]):
+            title_matches = str(record.get("title", "")).lower() == title
+            reference_matches = str(record.get("searchable_reference") or "").lower() in references
+            if not (title_matches or reference_matches) or not self._type_matches(record, obj["media_type"]):
                 continue
             if obj["media_type"] == "tv" and (record.get("season"), record.get("episode")) != (
                 obj.get("season"),
@@ -147,6 +155,8 @@ class RecordingRequestLogger(RequestLogger):
         status_code: int,
         result_media_id: str | None = None,
         error_message: str | None = None,
+        outcome: str | None = None,
+        decided_by: str | None = None,
     ) -> None:
         self.completed.append(
             {
@@ -154,6 +164,8 @@ class RecordingRequestLogger(RequestLogger):
                 "status_code": status_code,
                 "result_media_id": result_media_id,
                 "error_message": error_message,
+                "outcome": outcome,
+                "decided_by": decided_by,
             }
         )
 
@@ -164,6 +176,8 @@ class RecordingRequestLogger(RequestLogger):
                 "result_status": entry["status_code"],
                 "result_media_id": entry["result_media_id"],
                 "error_message": entry["error_message"],
+                "outcome": entry["outcome"],
+                "decided_by": entry["decided_by"],
             }
             for entry in reversed(self.completed[-limit:])
         ]
