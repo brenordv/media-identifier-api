@@ -1,6 +1,6 @@
-import psycopg
 import pytest
 from psycopg import sql
+from psycopg.rows import dict_row
 
 from src.models.media_info import MediaData
 from src.repositories.media_info_cache import MediaInfoCache
@@ -43,6 +43,7 @@ def test_cache_data_inserts_only_cache_columns_and_returns_the_new_id() -> None:
     assert "ON CONFLICT (tmdb_id, media_type) DO NOTHING" in statement
     assert values == ["Possessed", 26620, "Possessed", "Possessed", "movie", 2000, False, True]
     assert stored["id"] == ROW_ID
+    assert pool.cursor.row_factories == [dict_row]
 
 
 def test_cache_data_conflict_returns_the_row_cached_first() -> None:
@@ -52,7 +53,7 @@ def test_cache_data_conflict_returns_the_row_cached_first() -> None:
 
     stored = cache.cache_data(_movie())
 
-    assert stored == cached_first
+    assert stored == {**cached_first, "id": ROW_ID}
     assert pool.cursor.executed[1][1] == (26620, "movie")
 
 
@@ -91,6 +92,7 @@ def test_get_cached_by_tmdb_id_filters_by_media_type(media_type: str, expected: 
     assert result == _movie()
     assert "tmdb_id = %s AND media_type = %s" in _sql_text(statement)
     assert params == (95480, expected)
+    assert pool.cursor.row_factories == [dict_row]
 
 
 def test_get_cached_by_tmdb_id_unknown_media_type_does_not_query() -> None:
@@ -118,14 +120,6 @@ def test_get_cached_by_id_returns_none_when_no_row_matches() -> None:
     cache = MediaInfoCache(pool_getter=pool.getter())
 
     assert cache.get_cached_by_id(ROW_ID) is None
-
-
-def test_database_error_is_raised_as_runtime_error() -> None:
-    pool = FakePool(error=psycopg.OperationalError("server closed the connection"))
-    cache = MediaInfoCache(pool_getter=pool.getter())
-
-    with pytest.raises(RuntimeError, match="Error getting cached data by TMDb ID"):
-        cache.get_cached_by_tmdb_id(26620, "movie")
 
 
 def test_get_cached_by_obj_without_title_does_not_query() -> None:

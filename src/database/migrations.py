@@ -96,14 +96,24 @@ def plan_migrations(available: list[Migration], applied: dict[int, str]) -> list
         applied: Checksums of the versions already applied, by version.
 
     Raises:
-        MigrationError: If an applied migration's file changed since it was applied.
+        MigrationError: If an applied migration's file changed since it was applied, or a pending migration is
+            numbered below one already applied (it would run out of order).
     """
     for migration in available:
         recorded = applied.get(migration.version)
         if recorded is not None and recorded != migration.checksum:
             raise MigrationError(f"Migration {migration.label} changed after it was applied.")
 
-    return [migration for migration in available if migration.version not in applied]
+    pending = [migration for migration in available if migration.version not in applied]
+    latest_applied = max(applied, default=0)
+    for migration in pending:
+        if migration.version < latest_applied:
+            raise MigrationError(
+                f"Migration {migration.label} is pending but version {latest_applied} is already applied; "
+                "give it a number after the latest migration."
+            )
+
+    return pending
 
 
 def _connect_autocommit(conninfo: str) -> psycopg.Connection[Any]:
@@ -132,6 +142,7 @@ def apply_migrations(
     Raises:
         MigrationError: If the files are inconsistent, the lock is not acquired in time, or a migration fails (its
             changes are rolled back).
+        psycopg.Error: If connecting, taking the lock, or reading the ledger fails.
     """
     migrations = discover_migrations(directory)
 

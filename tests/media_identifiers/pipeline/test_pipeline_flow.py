@@ -107,8 +107,20 @@ def test_cache_hits_of_another_media_type_are_discarded(caplog: pytest.LogCaptur
         "season": 6,
         "episode": 6,
     }
-    flesh_tx_with_the_episode_id = {**FLESH_TX_ROW, "tmdb_id": EPISODE_ID}
-    cache = InMemoryCache(records=[movie_named_like_the_show, flesh_tx_with_the_episode_id], ignore_media_type=True)
+    movie_with_the_series_numbers = {
+        **FLESH_TX_ROW,
+        "id": "movie-with-series-numbers",
+        "title": "Unrelated Movie",
+        "tmdb_id": 2,
+        "tmdb_series_id": SERIES_ID,
+        "season": 6,
+        "episode": 6,
+    }
+    flesh_tx_with_the_episode_id = {**FLESH_TX_ROW, "id": "movie-with-episode-id", "tmdb_id": EPISODE_ID}
+    cache = InMemoryCache(
+        records=[movie_named_like_the_show, movie_with_the_series_numbers, flesh_tx_with_the_episode_id],
+        ignore_media_type=True,
+    )
 
     with caplog.at_level(logging.WARNING):
         result = MediaIdentifier(cache).get_media_info_by_filename(SLOW_HORSES_FILE.lower())
@@ -116,10 +128,14 @@ def test_cache_hits_of_another_media_type_are_discarded(caplog: pytest.LogCaptur
     assert result is not None
     assert result["media_type"] == "tv"
     assert result["tmdb_id"] == EPISODE_ID
-    discarded = [
-        record for record in caplog.records if "Discarded cache hit of another media type" in record.getMessage()
-    ]
-    assert len(discarded) >= 2
+    discarded_rows = {
+        row_id
+        for record in caplog.records
+        if "Discarded cache hit of another media type" in record.getMessage()
+        for row_id in ("same-title-movie", "movie-with-series-numbers", "movie-with-episode-id")
+        if f"cached row {row_id} " in record.getMessage()
+    }
+    assert discarded_rows == {"same-title-movie", "movie-with-series-numbers", "movie-with-episode-id"}
 
 
 def test_episode_tmdb_does_not_list_yet_is_returned_uncached(
@@ -137,7 +153,7 @@ def test_episode_tmdb_does_not_list_yet_is_returned_uncached(
     assert result["tmdb_series_id"] == SERIES_ID
     assert cache.inserted == []
     assert any(
-        record.levelno == logging.INFO and "TMDb has no episode S6E6" in record.getMessage()
+        record.levelno == logging.INFO and "No TMDb episode ID for S6E6" in record.getMessage()
         for record in caplog.records
     )
 
@@ -147,7 +163,7 @@ def test_cached_episode_is_returned_by_series_season_and_episode() -> None:
     cached_episode = {
         **FLESH_TX_ROW,
         "id": "cached-episode",
-        "title": "Slow Horses",
+        "title": "Slow Horses (cached under another title)",
         "media_type": "tv",
         "tmdb_id": EPISODE_ID,
         "tmdb_series_id": SERIES_ID,
@@ -161,6 +177,25 @@ def test_cached_episode_is_returned_by_series_season_and_episode() -> None:
 
     assert result == cached_episode
     assert cache.inserted == []
+
+
+def test_special_episode_in_season_zero_is_identified(tmdb: dict[str, dict[str, Any]]) -> None:
+    tmdb[f"/tv/{SERIES_ID}/season/0/episode/1"] = {
+        "id": 3000001,
+        "name": "Behind the Scenes",
+        "season_number": 0,
+        "episode_number": 1,
+        "air_date": "2022-03-01",
+    }
+
+    result = MediaIdentifier(InMemoryCache()).get_media_info_by_filename(
+        "Slow.Horses.S00E01.1080p.ATVP.WEB-DL.DDP5.1.H.264-NTb.mkv"
+    )
+
+    assert result is not None
+    assert (result["season"], result["episode"]) == (0, 1)
+    assert result["tmdb_id"] == 3000001
+    assert result["episode_title"] == "Behind the Scenes"
 
 
 @pytest.mark.usefixtures("tmdb")

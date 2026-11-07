@@ -7,6 +7,7 @@ from typing import Any, Self
 import psycopg
 import pytest
 
+from src.database import migrations as migrations_module
 from src.database.migrations import (
     MIGRATIONS_DIR,
     Migration,
@@ -55,13 +56,16 @@ class FakeCursor:
 
 
 class FakeMigrationConnection:
-    """Records what a migration run does; can refuse the advisory lock or fail one migration's SQL."""
+    """Records what a migration run does; answers lock attempts from ``lock_answers`` and can fail one file's SQL."""
 
     def __init__(
-        self, applied: dict[int, str] | None = None, lock_free: bool = True, failing_sql: str | None = None
+        self,
+        applied: dict[int, str] | None = None,
+        lock_answers: list[bool] | None = None,
+        failing_sql: str | None = None,
     ) -> None:
         self.applied = applied or {}
-        self.lock_free = lock_free
+        self.lock_answers = list(lock_answers or [True])
         self.failing_sql = failing_sql
         self.statements: list[str] = []
         self.cursor_statements: list[tuple[str, Any]] = []
@@ -77,7 +81,8 @@ class FakeMigrationConnection:
     def execute(self, query: str, params: Any = None) -> FakeResult:
         self.statements.append(query)
         if "pg_try_advisory_lock" in query:
-            return FakeResult([(self.lock_free,)])
+            answer = self.lock_answers.pop(0) if len(self.lock_answers) > 1 else self.lock_answers[0]
+            return FakeResult([(answer,)])
         if query.startswith("SELECT version, checksum"):
             return FakeResult(list(self.applied.items()))
         return FakeResult([])
@@ -176,7 +181,7 @@ def test_apply_migrations_runs_pending_files_in_order_and_records_them(
     assert [migration.version for migration in applied] == [1, 2]
     assert connection.ledger_versions() == [1, 2]
     assert connection.transactions == ["commit", "commit"]
-    assert any("pg_try_advisory_lock" in statement for statement in connection.statements)
+    assert "pg_try_advisory_lock" in connection.statements[0]
     assert connection.closed
     assert any("Applied migration 0001_first" in record.getMessage() for record in caplog.records)
 
@@ -207,8 +212,28 @@ def test_apply_migrations_failure_rolls_back_that_file_and_stops(migrations_dir:
     assert connection.closed
 
 
+def test_apply_migrations_waits_for_a_lock_held_by_another_run(
+    migrations_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(migrations_module, "LOCK_POLL_SECONDS", 0)
+    connection = FakeMigrationConnection(lock_answers=[False, False, True])
+
+    applied = apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection)
+
+    lock_attempts = [statement for statement in connection.statements if "pg_try_advisory_lock" in statement]
+    assert len(lock_attempts) == 3
+    assert [migration.version for migration in applied] == [1, 2]
+
+
+def test_plan_migrations_pending_file_numbered_below_an_applied_one_raises(migrations_dir: Path) -> None:
+    first, second = discover_migrations(migrations_dir)
+
+    with pytest.raises(MigrationError, match="0001_first is pending but version 2 is already applied"):
+        plan_migrations([first, second], {2: second.checksum})
+
+
 def test_apply_migrations_lock_held_elsewhere_raises_after_waiting(migrations_dir: Path) -> None:
-    connection = FakeMigrationConnection(lock_free=False)
+    connection = FakeMigrationConnection(lock_answers=[False])
 
     with pytest.raises(MigrationError, match="Timed out waiting"):
         apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection, lock_wait_seconds=0)

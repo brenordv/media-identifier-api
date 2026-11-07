@@ -66,7 +66,7 @@ def is_media_type_valid(media_type: str | None) -> bool:
     return normalize_media_type(media_type) in VALID_MEDIA_TYPES
 
 
-def has_media_type(record: Mapping[str, Any], media_type: str | None) -> bool:
-    """True when a media record's ``media_type`` and ``media_type`` normalize to the same valid type."""
+def is_record_of_media_type(record: Mapping[str, Any], media_type: str | None) -> bool:
+    """True when ``record["media_type"]`` is the valid media type ``media_type`` (any accepted spelling of either)."""
     expected = normalize_media_type(media_type)
     return expected is not None and normalize_media_type(record.get("media_type")) == expected

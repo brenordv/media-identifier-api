@@ -1,7 +1,7 @@
 """Process-wide repository instances.
 
-Repositories do no I/O when they are built; they borrow connections from the pool that the application's lifespan
-creates.
+Repositories do no I/O when they are built; they borrow connections from the process-wide pool, which must be
+created (``raccoontools_db.create_pool``) before the first query.
 """
 
 from functools import cache

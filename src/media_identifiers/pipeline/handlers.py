@@ -15,9 +15,9 @@ from src.media_identifiers.media_identification_tasks.tmdb_tasks import (
     tmdb_identify_series_by_title_and_id,
 )
 from src.media_identifiers.media_type_helpers import (
-    has_media_type,
     is_media_type_valid,
     is_movie,
+    is_record_of_media_type,
     is_tv,
 )
 from src.media_identifiers.pipeline.base import PipelineContext, PipelineHandler, StepResult
@@ -70,7 +70,7 @@ class CacheLookupHandler(PipelineHandler):
                 }
             )
         cached = context.cache_repository.get_cached_by_obj(media)
-        if cached and not has_media_type(cached, media.get("media_type")):
+        if cached and not is_record_of_media_type(cached, media.get("media_type")):
             context.logger.warning(
                 f"[{self.name}] Discarded cache hit of another media type: identified {media.get('media_type')!r}, "
                 f"cached row {cached.get('id')} is {cached.get('media_type')!r} with TMDb ID {cached.get('tmdb_id')}."

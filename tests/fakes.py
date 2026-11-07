@@ -11,10 +11,11 @@ from src.repositories.request_logger import RequestLogger
 
 
 class FakeCursor:
-    """Records executed statements and returns queued rows."""
+    """Records executed statements and the row factory each cursor was opened with; returns queued rows."""
 
     def __init__(self, rows: list[Any] | None = None, error: Exception | None = None) -> None:
         self.executed: list[tuple[Any, Any]] = []
+        self.row_factories: list[Any] = []
         self._rows = list(rows or [])
         self._error = error
 
@@ -44,6 +45,7 @@ class FakeConnection:
         self._cursor = cursor
 
     def cursor(self, row_factory: Any = None) -> FakeCursor:
+        self._cursor.row_factories.append(row_factory)
         return self._cursor
 
 
@@ -71,8 +73,8 @@ class InMemoryCache(MediaInfoCache):
 
     Args:
         records: Rows already cached.
-        ignore_media_type: Make the lookups match on ids and titles alone, the way 1.x queried, to exercise the
-            guards against cache hits of another media type.
+        ignore_media_type: Make the lookups ignore ``media_type``, to exercise the guards against cache hits of
+            another media type.
     """
 
     def __init__(self, records: list[MediaData] | None = None, ignore_media_type: bool = False) -> None:

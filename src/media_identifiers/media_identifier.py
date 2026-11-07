@@ -1,7 +1,7 @@
 """Entry point of identification: runs the pipeline for a request and caches what it identifies."""
 
 from src.media_identifiers.constants import MOVIE, TV
-from src.media_identifiers.media_type_helpers import has_media_type, is_media_type_valid, is_movie, is_tv
+from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_record_of_media_type, is_tv
 from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
 from src.models.media_identification_request import MediaIdentificationRequest
 from src.models.media_info import MediaData
@@ -125,7 +125,7 @@ class MediaIdentifier:
 
         if tmdb_id is None:
             self._logger.info(
-                f"TMDb has no episode S{season}E{episode} for series {tmdb_series_id} yet; returning without caching."
+                f"No TMDb episode ID for S{season}E{episode} of series {tmdb_series_id}; returning without caching."
             )
             return media
 
@@ -143,7 +143,7 @@ class MediaIdentifier:
         return self._cache_or_return(media)
 
     def _accept_cached(self, cached: MediaData | None, media_type: str) -> MediaData | None:
-        if cached is None or has_media_type(cached, media_type):
+        if cached is None or is_record_of_media_type(cached, media_type):
             return cached
 
         self._logger.warning(

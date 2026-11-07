@@ -52,48 +52,48 @@ def request_tmdb_movie_details(tmdb_id: int) -> MediaData | None:
 
 
 @_logger.trace("request_tmdb_series_details")
-def request_tmdb_series_details(tmdb_id: int) -> MediaData | None:
+def request_tmdb_series_details(tmdb_series_id: int) -> MediaData | None:
     """Fetch a series' details.
 
     Args:
-        tmdb_id: TMDB series id.
+        tmdb_series_id: TMDB series id.
 
     Returns:
         The series record, or None when TMDB returns nothing. The series id is in ``tmdb_series_id``; ``tmdb_id`` is
         left empty because on a TV record it holds the episode id.
 
     Raises:
-        ValueError: If ``tmdb_id`` is empty.
+        ValueError: If ``tmdb_series_id`` is empty.
     """
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attribute("tmdb.id", tmdb_id)
+        span.set_attribute("tmdb.series_id", tmdb_series_id)
 
-    if not tmdb_id:
-        raise ValueError("TMDB ID must not be None or empty.")
+    if not tmdb_series_id:
+        raise ValueError("TMDB series ID must not be None or empty.")
 
-    series_details = _make_request(f"{TMDB_API_BASE_URL}/tv/{tmdb_id}")
+    series_details = _make_request(f"{TMDB_API_BASE_URL}/tv/{tmdb_series_id}")
 
     if not series_details:
-        _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
+        _logger.warning(f"No details found for TMDB series ID: {tmdb_series_id}")
         return None
 
     return (
         _get_record_builder_for_tmdb_data(series_details)
         .with_media_type(TV)
-        .with_tmdb_series_id(tmdb_id)
+        .with_tmdb_series_id(tmdb_series_id)
         .with_tmdb_id(None)
         .build()
     )
 
 
 @_logger.trace("request_tmdb_series_episode_details")
-def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int) -> MediaData | None:
+def request_tmdb_series_episode_details(tmdb_series_id: int, season: int, episode: int) -> MediaData | None:
     """Fetch one episode's details.
 
     Args:
-        tmdb_id: TMDB series id.
-        season: Season number.
+        tmdb_series_id: TMDB series id.
+        season: Season number; 0 is the series' specials.
         episode: Episode number.
 
     Returns:
@@ -101,22 +101,22 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
         nothing.
 
     Raises:
-        ValueError: If any argument is empty.
+        ValueError: If the series id is empty, or the season or episode is missing.
     """
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({"tmdb.id": tmdb_id, "media.season": season, "media.episode": episode})
+        span.set_attributes({"tmdb.series_id": tmdb_series_id, "media.season": season, "media.episode": episode})
 
-    if not tmdb_id:
-        raise ValueError("TMDB ID must not be None or empty.")
+    if not tmdb_series_id:
+        raise ValueError("TMDB series ID must not be None or empty.")
 
-    if not season or not episode:
-        raise ValueError("Season and episode numbers must not be None or empty.")
+    if season is None or episode is None:
+        raise ValueError("Season and episode numbers must not be None.")
 
-    episode_details = _make_request(f"{TMDB_API_BASE_URL}/tv/{tmdb_id}/season/{season}/episode/{episode}")
+    episode_details = _make_request(f"{TMDB_API_BASE_URL}/tv/{tmdb_series_id}/season/{season}/episode/{episode}")
 
     if not episode_details:
-        _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
+        _logger.warning(f"No details found for TMDB series ID {tmdb_series_id} S{season}E{episode}")
         return None
 
     return (
@@ -126,7 +126,7 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
         .with_season(episode_details.get("season_number", season))
         .with_media_type(TV)
         .with_tmdb_id(episode_details.get("id"))
-        .with_tmdb_series_id(tmdb_id)
+        .with_tmdb_series_id(tmdb_series_id)
         .with_overview(episode_details.get("overview"))
         .with_year(_extract_year_from_tmdb_multi_data(episode_details))
         .build()
@@ -149,7 +149,8 @@ def request_tmdb_external_ids(
         episode_number: See ``season_number``.
 
     Returns:
-        A record with the external ids and ``tmdb_id`` set to the queried id, or None when TMDB returns nothing.
+        A record with only the external ids set (``tmdb_id`` stays empty, so merging it never changes the record's
+        own id), or None when TMDB returns nothing.
 
     Raises:
         ValueError: If ``tmdb_id`` is empty or ``media_type`` is neither movie nor TV.
@@ -185,7 +186,6 @@ def request_tmdb_external_ids(
 
     return (
         MediaInfoBuilder()
-        .with_tmdb_id(tmdb_id)
         .with_imdb_id(external_ids.get("imdb_id"))
         .with_tvdb_id(external_ids.get("tvdb_id"))
         .with_tvrage_id(external_ids.get("tvrage_id"))

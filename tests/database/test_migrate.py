@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from src.database import migrate
-from src.database.migrations import Migration
+from src.database.migrations import Migration, MigrationError
 
 SECRET_PASSWORD = "Sup3r-S3cret-Password"
 
@@ -32,6 +32,20 @@ def test_main_connection_failure_exits_1_without_revealing_the_password(
     assert "Migration failed" in output.err
     assert SECRET_PASSWORD not in output.out + output.err
     assert all(SECRET_PASSWORD not in record.getMessage() for record in caplog.records)
+
+
+def test_main_failed_migration_exits_1_with_the_reason(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_migrations(conninfo: str, logger: object) -> list[Migration]:
+        raise MigrationError("Timed out waiting for another migration run to release its lock.")
+
+    monkeypatch.setattr(migrate, "build_conninfo", lambda: "host=db.example")
+    monkeypatch.setattr(migrate, "apply_migrations", failing_migrations)
+
+    assert migrate.main() == 1
+
+    assert "Timed out waiting" in capsys.readouterr().err
 
 
 def test_main_reports_the_applied_migrations(

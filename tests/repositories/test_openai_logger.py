@@ -15,3 +15,4 @@ def test_log_records_tokens_against_the_current_request() -> None:
 
     assert log_id == str(LOG_ID)
     assert pool.cursor.executed[0][1] == (120, 20, 8, 3, 128, "2577e39f-6ca8-4450-adae-f6395efc4862")
+    assert pool.cursor.row_factories == [None]

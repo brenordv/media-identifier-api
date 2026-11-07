@@ -197,7 +197,4 @@ def _tmdb_get_media_external_ids(media_data: MediaData) -> TaskResult:
         _logger.debug(f"[{log_tag}] No external IDs found for TMDb ID: [{lookup_id}]. Task failed.")
         return media_data, False
 
-    # The external-ids builder echoes the queried id; drop it so it never replaces the record's own id.
-    external_ids["tmdb_id"] = None
-
     return merge_media_info(media_data, external_ids), True

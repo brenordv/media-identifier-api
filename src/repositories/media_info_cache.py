@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from raccoontools_db import get_pool
 
 from src.converters.create_searchable_reference import create_searchable_reference
-from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.constants import TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaData
 from src.repositories.base_repository import BaseRepository, PoolGetter
@@ -125,9 +125,6 @@ class MediaInfoCache(BaseRepository):
                 return None
             query += " AND season = %s AND episode = %s"
             query_args += [season_number, episode_number]
-        elif media_type != MOVIE:
-            self._logger.debug("Object does not contain a valid media type, returning None")
-            return None
 
         if is_valid_year(year):
             query += " AND year = %s"
@@ -299,4 +296,4 @@ class MediaInfoCache(BaseRepository):
             raise RuntimeError("Error caching record: the insert conflicted but no cached row was found")
 
         self._logger.debug(f"Record was cached concurrently with ID: {existing['id']}")
-        return existing
+        return {**existing, "id": str(existing["id"])}

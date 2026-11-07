@@ -31,8 +31,8 @@ def openai_identify_series_season_and_episode_by_title(
         file_path: The file name to analyze.
 
     Returns:
-        The record with ``season``/``episode`` merged in (None when OpenAI could not tell), and True; or the input
-        and False when there is no media, no file path, or no TMDB series id.
+        The record with ``season``/``episode`` merged in (None when OpenAI could not tell), and True; ``(None, False)``
+        when there is no media or no file path; the input and False when it has no TMDB series id.
     """
     log_tag = openai_identify_series_season_and_episode_by_title.__name__
 

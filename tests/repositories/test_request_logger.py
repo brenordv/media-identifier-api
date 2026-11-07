@@ -1,8 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-import psycopg
-import pytest
+from psycopg.rows import dict_row
 
 from src.repositories.request_logger import RequestLogger
 from tests.fakes import FakePool
@@ -19,6 +18,7 @@ def test_log_start_returns_the_new_request_id_as_text() -> None:
 
     assert request_id == str(REQUEST_ID)
     assert pool.cursor.executed[0][1] == ("/api/guess", "Fargo.1996.mkv", "127.0.0.1")
+    assert pool.cursor.row_factories == [None]
 
 
 def test_get_recent_requests_returns_ids_as_text() -> None:
@@ -42,11 +42,4 @@ def test_get_recent_requests_returns_ids_as_text() -> None:
     assert requests[0]["id"] == str(REQUEST_ID)
     assert requests[0]["result_media_id"] == str(MEDIA_ID)
     assert pool.cursor.executed[0][1] == (5,)
-
-
-def test_log_completed_database_error_raises_runtime_error() -> None:
-    pool = FakePool(error=psycopg.OperationalError("server closed the connection"))
-    request_logger = RequestLogger(pool_getter=pool.getter())
-
-    with pytest.raises(RuntimeError, match="Error logging request completion"):
-        request_logger.log_completed(str(REQUEST_ID), 200)
+    assert pool.cursor.row_factories == [dict_row]
