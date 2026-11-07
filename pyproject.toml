@@ -1,6 +1,6 @@
 [project]
 name = "media-identifier-api"
-version = "1.0.0"
+version = "2.0.0"
 description = "REST API that identifies movies and TV episodes from file names using guessit, TMDB and OpenAI."
 readme = "readme.md"
 requires-python = ">=3.12"
