@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from src.media_identifiers import media_identifier as media_identifier_module
@@ -94,3 +96,57 @@ def test_identify_unknown_media_type_returns_none(pipeline_yields: list[MediaDat
     pipeline_yields.append(_movie(media_type="unknown"))
 
     assert MediaIdentifier(cache).get_media_info_by_filename(FILE_NAME) is None
+
+
+def _episode(**overrides: object) -> MediaData:
+    media = (
+        MediaInfoBuilder()
+        .with_title("Slow Horses")
+        .with_original_title("Slow Horses")
+        .with_media_type("tv")
+        .with_tmdb_id(6545154)
+        .with_tmdb_series_id(95480)
+        .with_season(6)
+        .with_episode(6)
+        .with_year(2026)
+        .build()
+    )
+    return {**media, **overrides}
+
+
+def test_identify_episode_keyed_by_its_series_id_is_not_cached(
+    pipeline_yields: list[MediaData], caplog: pytest.LogCaptureFixture
+) -> None:
+    cache = InMemoryCache()
+    pipeline_yields.append(_episode(tmdb_id=95480))
+
+    with caplog.at_level(logging.WARNING):
+        result = MediaIdentifier(cache).get_media_info_by_filename(FILE_NAME)
+
+    assert result is not None
+    assert cache.inserted == []
+    assert any(
+        record.levelno == logging.WARNING and "carries its series ID 95480" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_identify_episode_without_series_season_or_episode_is_not_cached(pipeline_yields: list[MediaData]) -> None:
+    cache = InMemoryCache()
+    pipeline_yields.append(_episode(tmdb_series_id=None))
+
+    result = MediaIdentifier(cache).get_media_info_by_filename(FILE_NAME)
+
+    assert result is not None
+    assert cache.inserted == []
+
+
+def test_identify_new_episode_is_cached(pipeline_yields: list[MediaData]) -> None:
+    cache = InMemoryCache()
+    pipeline_yields.append(_episode())
+
+    result = MediaIdentifier(cache).get_media_info_by_filename(FILE_NAME)
+
+    assert result is not None
+    assert result["id"] == "cached-1"
+    assert cache.inserted[0]["tmdb_id"] == 6545154

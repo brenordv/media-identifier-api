@@ -80,6 +80,20 @@ uv run python main.py
 
 The API will be available at http://localhost:8000
 
+### Database schema and migrations
+
+The schema lives in versioned SQL files under `migrations/` (`NNNN_name.sql`). The API applies pending migrations
+when it starts, so a fresh install needs nothing but an empty database the configured user can create tables in. To
+apply them yourself, for example before a deploy:
+
+```bash
+uv run python -m src.database.migrate
+```
+
+Each file runs once, in its own transaction, and is recorded in the `schema_migrations` table with a checksum. Runs
+take a PostgreSQL advisory lock, so several workers starting together are safe. An applied file must never be edited
+(the checksum check stops the run); schema changes go in a new file with the next number.
+
 ### Tests and checks
 
 ```bash

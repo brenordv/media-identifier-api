@@ -67,28 +67,53 @@ def no_pool() -> Any:
 
 
 class InMemoryCache(MediaInfoCache):
-    """MediaInfoCache backed by a list; lookups mirror the SQL filters of the real repository."""
+    """MediaInfoCache backed by a list; lookups mirror the SQL filters of the real repository.
 
-    def __init__(self, records: list[MediaData] | None = None) -> None:
+    Args:
+        records: Rows already cached.
+        ignore_media_type: Make the lookups match on ids and titles alone, the way 1.x queried, to exercise the
+            guards against cache hits of another media type.
+    """
+
+    def __init__(self, records: list[MediaData] | None = None, ignore_media_type: bool = False) -> None:
         super().__init__(pool_getter=no_pool)
         self.records: list[MediaData] = list(records or [])
         self.inserted: list[MediaData] = []
+        self._ignore_media_type = ignore_media_type
+
+    def _type_matches(self, record: MediaData, media_type: str) -> bool:
+        return self._ignore_media_type or record.get("media_type") == media_type
 
     def get_cached_by_obj(self, obj: MediaData | None) -> MediaData | None:
+        if obj is None or obj.get("title") is None:
+            return None
+        title = str(obj["title"]).lower()
+        for record in self.records:
+            if str(record.get("title", "")).lower() != title or not self._type_matches(record, obj["media_type"]):
+                continue
+            if obj["media_type"] == "tv" and (record.get("season"), record.get("episode")) != (
+                obj.get("season"),
+                obj.get("episode"),
+            ):
+                continue
+            return record
         return None
 
     def get_cached_by_id(self, media_id: str) -> MediaData | None:
         return next((r for r in self.records if str(r.get("id")) == media_id), None)
 
-    def get_cached_by_tmdb_id(self, tmdb_id: int) -> MediaData | None:
-        return next((r for r in self.records if r.get("tmdb_id") == tmdb_id), None)
+    def get_cached_by_tmdb_id(self, tmdb_id: int, media_type: str) -> MediaData | None:
+        return next(
+            (r for r in self.records if r.get("tmdb_id") == tmdb_id and self._type_matches(r, media_type)), None
+        )
 
     def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int) -> MediaData | None:
         return next(
             (
                 r
                 for r in self.records
-                if r.get("tmdb_series_id") == tmdb_series_id
+                if self._type_matches(r, "tv")
+                and r.get("tmdb_series_id") == tmdb_series_id
                 and r.get("season") == season
                 and r.get("episode") == episode
             ),

@@ -20,40 +20,6 @@ class OpenAILogger(BaseRepository):
     def __init__(self, pool_getter: PoolGetter = get_pool) -> None:
         super().__init__(_logger, pool_getter)
 
-    def ensure_schema(self) -> None:
-        """Create the ``openai_history`` table and its index when they do not exist.
-
-        Raises:
-            RuntimeError: If the database rejects the DDL.
-        """
-        try:
-            with self._get_connection() as conn, conn.cursor() as cursor:
-                self._logger.debug("Enabling uuid-ossp extension")
-                cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
-
-                self._logger.debug("Creating openai_history table if it does not exist")
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS openai_history (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        request_id UUID NOT NULL,
-                        input_tokens INTEGER NOT NULL,
-                        cached_tokens INTEGER NOT NULL,
-                        output_tokens INTEGER NOT NULL,
-                        reasoning_tokens INTEGER NOT NULL,
-                        total_tokens INTEGER NOT NULL,
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """
-                )
-
-                self._logger.debug("Creating indexes for openai_history table")
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_openai_history_request_id ON openai_history (request_id);"
-                )
-        except psycopg.Error as e:
-            raise RuntimeError(f"Error creating the OpenAI request logger table: {e}") from e
-
     @_logger.trace("log")
     def log(
         self,

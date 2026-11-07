@@ -17,13 +17,14 @@ from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from raccoontools_db import close_pool, create_pool
 
+from src.database.migrations import apply_migrations
 from src.database.pool import build_pool_config
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
 from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.models.media_info import MediaData
 from src.repositories.media_info_cache import MediaInfoCache
-from src.repositories.repository_factory import ensure_schema, get_cache_repository, get_request_logger
+from src.repositories.repository_factory import get_cache_repository, get_request_logger
 from src.repositories.request_logger import RequestLogger
 from src.utils import flush_all_otel_loggers, get_otel_log_handler, set_request_id
 
@@ -35,10 +36,16 @@ INTERNAL_ERROR_DETAIL = "Internal error while processing the request."
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Open the database pool and make sure the schema exists; close the pool on shutdown."""
-    create_pool(build_pool_config())
+    """Apply pending database migrations, then open the connection pool; close the pool on shutdown."""
+    pool_config = build_pool_config()
     try:
-        ensure_schema()
+        apply_migrations(pool_config.conn_info, logger)
+    except Exception:
+        logger.exception("Applying database migrations failed; the API will not start")
+        raise
+
+    create_pool(pool_config)
+    try:
         yield
     finally:
         close_pool()

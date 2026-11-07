@@ -15,6 +15,7 @@ from src.media_identifiers.media_identification_tasks.tmdb_tasks import (
     tmdb_identify_series_by_title_and_id,
 )
 from src.media_identifiers.media_type_helpers import (
+    has_media_type,
     is_media_type_valid,
     is_movie,
     is_tv,
@@ -54,7 +55,7 @@ class CacheLookupHandler(PipelineHandler):
 
     @_logger.trace("CacheLookupHandler.invoke")
     def invoke(self, context: PipelineContext) -> StepResult:
-        """Look the media up; DONE on a hit, SUCCESS otherwise."""
+        """Look the media up; DONE on a hit, SUCCESS otherwise (a hit of another media type is discarded)."""
         media = context.media
         if media is None:
             return StepResult.skip(_NO_MEDIA)
@@ -69,6 +70,13 @@ class CacheLookupHandler(PipelineHandler):
                 }
             )
         cached = context.cache_repository.get_cached_by_obj(media)
+        if cached and not has_media_type(cached, media.get("media_type")):
+            context.logger.warning(
+                f"[{self.name}] Discarded cache hit of another media type: identified {media.get('media_type')!r}, "
+                f"cached row {cached.get('id')} is {cached.get('media_type')!r} with TMDb ID {cached.get('tmdb_id')}."
+            )
+            cached = None
+
         if cached:
             context.logger.debug(f"[{self.name}] Cache hit; stopping pipeline.")
             context.mark_cached_result(cached)
@@ -300,12 +308,12 @@ class TMDBSeriesExternalIdsHandler(PipelineHandler):
     name = "tmdb_series_external_ids"
 
     def handles(self, context: PipelineContext) -> bool:
-        """Applies to TV media with a TMDB id."""
+        """Applies to TV media with a TMDB series id."""
         if not is_tv(context.media_type):
             return False
         if context.media is None:
             return False
-        if not context.media.get("tmdb_id"):
+        if not context.media.get("tmdb_series_id"):
             return False
         return True
 
@@ -318,7 +326,7 @@ class TMDBSeriesExternalIdsHandler(PipelineHandler):
 
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({"pipeline.handler": self.name, "tmdb.id": media.get("tmdb_id")})
+            span.set_attributes({"pipeline.handler": self.name, "tmdb.series_id": media.get("tmdb_series_id")})
         media_data, success = tmdb_get_series_external_ids(media, success=True)
         if not success or media_data is None:
             context.logger.debug("[tmdb_series_external_ids] Unable to fetch series external IDs.")

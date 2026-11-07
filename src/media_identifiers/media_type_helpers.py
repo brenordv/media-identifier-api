@@ -1,5 +1,8 @@
 """Normalization of the many spellings of "movie" and "TV" that guessit, TMDB, OpenAI and callers produce."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from src.media_identifiers.constants import MOVIE, TV, VALID_MEDIA_TYPES
 from src.utils import get_otel_log_handler
 
@@ -61,3 +64,9 @@ def is_tv(media_type: str | None) -> bool:
 def is_media_type_valid(media_type: str | None) -> bool:
     """True when ``media_type`` normalizes to ``movie`` or ``tv``."""
     return normalize_media_type(media_type) in VALID_MEDIA_TYPES
+
+
+def has_media_type(record: Mapping[str, Any], media_type: str | None) -> bool:
+    """True when a media record's ``media_type`` and ``media_type`` normalize to the same valid type."""
+    expected = normalize_media_type(media_type)
+    return expected is not None and normalize_media_type(record.get("media_type")) == expected

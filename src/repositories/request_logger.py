@@ -23,43 +23,6 @@ class RequestLogger(BaseRepository):
     def __init__(self, pool_getter: PoolGetter = get_pool) -> None:
         super().__init__(_logger, pool_getter)
 
-    def ensure_schema(self) -> None:
-        """Create the ``request_history`` table and its index when they do not exist.
-
-        Raises:
-            RuntimeError: If the database rejects the DDL.
-        """
-        try:
-            with self._get_connection() as conn, conn.cursor() as cursor:
-                self._logger.debug("Enabling uuid-ossp extension")
-                cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
-
-                self._logger.debug("Creating request_history table if it does not exist")
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS request_history (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        endpoint TEXT NOT NULL,
-                        filename TEXT NOT NULL,
-                        requester_ip TEXT NOT NULL,
-                        result_status INTEGER NULL,
-                        result_media_id UUID NULL,
-                        received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        responded_at TIMESTAMP NULL,
-                        error_message TEXT NULL,
-                        elapsed_time INTERVAL GENERATED ALWAYS AS (responded_at - received_at) STORED
-                    );
-                    """
-                )
-
-                self._logger.debug("Creating indexes for request_history table")
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_request_history_received_at_desc "
-                    "ON request_history (received_at DESC);"
-                )
-        except psycopg.Error as e:
-            raise RuntimeError(f"Error creating the request logger table: {e}") from e
-
     @_logger.trace("log_start")
     def log_start(self, endpoint: str, filename: str, requester_ip: str) -> str:
         """Record that a request arrived.

@@ -27,12 +27,12 @@ def openai_identify_series_season_and_episode_by_title(
     """Ask OpenAI for the season and episode numbers of a TV file.
 
     Args:
-        media_data: The media identified so far; must already carry a TMDB id.
+        media_data: The media identified so far; must already carry its TMDB series id.
         file_path: The file name to analyze.
 
     Returns:
         The record with ``season``/``episode`` merged in (None when OpenAI could not tell), and True; or the input
-        and False when there is no media, no file path, or no TMDB id.
+        and False when there is no media, no file path, or no TMDB series id.
     """
     log_tag = openai_identify_series_season_and_episode_by_title.__name__
 
@@ -48,8 +48,8 @@ def openai_identify_series_season_and_episode_by_title(
         _logger.debug(f"[{log_tag}] No file path provided. Skipping task.")
         return None, False
 
-    if media_data.get("tmdb_id") is None:
-        _logger.debug(f"[{log_tag}] No TMDb ID found in media data. Task failed.")
+    if media_data.get("tmdb_series_id") is None:
+        _logger.debug(f"[{log_tag}] No TMDb series ID found in media data. Task failed.")
         return media_data, False
 
     season, episode = parse_season_episode_string(

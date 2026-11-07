@@ -95,15 +95,15 @@ def tmdb_identify_series_by_title_and_id(media_data: MediaData | None) -> TaskRe
         _logger.debug(f"[{log_tag}] No search result found for title: [{title!r}]. Skipping task. Retry is allowed.")
         return media_data, False
 
-    tmdb_id = search_result.get("tmdb_id")
+    tmdb_series_id = search_result.get("tmdb_series_id")
 
-    if tmdb_id is None:
-        _logger.debug(f"[{log_tag}] No TMDb ID in search result for title: [{title!r}]. Skipping task.")
+    if tmdb_series_id is None:
+        _logger.debug(f"[{log_tag}] No TMDb series ID in search result for title: [{title!r}]. Skipping task.")
         return media_data, False
 
-    series_details = request_tmdb_series_details(tmdb_id)
+    series_details = request_tmdb_series_details(tmdb_series_id)
     if series_details is None:
-        _logger.debug(f"[{log_tag}] No series details found for TMDb ID: [{tmdb_id}]. Skipping task. Retry is allowed.")
+        _logger.debug(f"[{log_tag}] No series details for TMDb series ID: [{tmdb_series_id}]. Retry is allowed.")
         return media_data, False
 
     return merge_media_info(media_data, series_details), True
@@ -129,7 +129,7 @@ def tmdb_get_series_external_ids(media_data: MediaData, *, success: bool = False
     merged, found = _tmdb_get_media_external_ids(media_data)
 
     if not found:
-        _logger.warning(f"[{log_tag}] Failed to get external IDs for TMDb ID {media_data.get('tmdb_id')}")
+        _logger.warning(f"[{log_tag}] Failed to get external IDs for TMDb series ID {media_data.get('tmdb_series_id')}")
         return media_data, False
 
     return merged, True
@@ -152,22 +152,22 @@ def tmdb_get_episode_details(media_data: MediaData, *, success: bool = False) ->
         _logger.debug(f"[{log_tag}] Can't run this step if it came from failure. Skipping task.")
         return media_data, False
 
-    tmdb_id = media_data.get("tmdb_id")
+    tmdb_series_id = media_data.get("tmdb_series_id")
     season = media_data.get("season")
     episode = media_data.get("episode")
 
-    if tmdb_id is None:
-        _logger.debug(f"[{log_tag}] No TMDb ID found in media data. Task failed.")
+    if tmdb_series_id is None:
+        _logger.debug(f"[{log_tag}] No TMDb series ID found in media data. Task failed.")
         return media_data, False
 
     if season is None or episode is None:
         _logger.debug(f"[{log_tag}] No season or episode number found in media data. Task failed.")
         return media_data, False
 
-    episode_details = request_tmdb_series_episode_details(tmdb_id, season, episode)
+    episode_details = request_tmdb_series_episode_details(tmdb_series_id, season, episode)
 
     if episode_details is None:
-        _logger.debug(f"[{log_tag}] No episode details found for TMDb ID: [{tmdb_id}]. Skipping task.")
+        _logger.debug(f"[{log_tag}] No episode details for TMDb series ID [{tmdb_series_id}] S{season}E{episode}.")
         return media_data, False
 
     return merge_media_info(media_data, episode_details), True
@@ -177,22 +177,24 @@ def tmdb_get_episode_details(media_data: MediaData, *, success: bool = False) ->
 def _tmdb_get_media_external_ids(media_data: MediaData) -> TaskResult:
     log_tag = _tmdb_get_media_external_ids.__name__
 
-    tmdb_id = media_data.get("tmdb_id")
-
-    if tmdb_id is None:
-        _logger.debug(f"[{log_tag}] No TMDb ID found in media data. Task failed.")
-        return media_data, False
-
     media_type = normalize_media_type(media_data.get("media_type"))
 
-    if media_type not in (MOVIE, TV):
+    if media_type == MOVIE:
+        lookup_id = media_data.get("tmdb_id")
+    elif media_type == TV:
+        lookup_id = media_data.get("tmdb_series_id")
+    else:
         _logger.debug(f"[{log_tag}] No media type found in media data. Task failed.")
         return media_data, False
 
-    external_ids = request_tmdb_external_ids(tmdb_id, media_type)
+    if lookup_id is None:
+        _logger.debug(f"[{log_tag}] No TMDb ID to look up external IDs for this {media_type}. Task failed.")
+        return media_data, False
+
+    external_ids = request_tmdb_external_ids(lookup_id, media_type)
 
     if external_ids is None:
-        _logger.debug(f"[{log_tag}] No external IDs found for TMDb ID: [{tmdb_id}]. Task failed.")
+        _logger.debug(f"[{log_tag}] No external IDs found for TMDb ID: [{lookup_id}]. Task failed.")
         return media_data, False
 
     # The external-ids builder echoes the queried id; drop it so it never replaces the record's own id.

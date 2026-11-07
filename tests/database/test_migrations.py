@@ -1,0 +1,217 @@
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Self
+
+import psycopg
+import pytest
+
+from src.database.migrations import (
+    MIGRATIONS_DIR,
+    Migration,
+    MigrationError,
+    apply_migrations,
+    checksum_of,
+    discover_migrations,
+    plan_migrations,
+)
+from src.utils import get_otel_log_handler
+
+CONNINFO = "host=db.example port=5432 user=media password=s3cret dbname=media"
+_logger = get_otel_log_handler("MigrationsTest")
+
+
+class FakeResult:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self._rows = rows
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._rows
+
+
+class FakeCursor:
+    def __init__(self, connection: "FakeMigrationConnection") -> None:
+        self._connection = connection
+        self.statusmessage: str | None = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def execute(self, query: str, params: Any = None) -> None:
+        if query == self._connection.failing_sql:
+            raise psycopg.errors.SyntaxError('syntax error at or near "BROKEN"')
+        self._connection.cursor_statements.append((query, params))
+        self.statusmessage = "INSERT 0 1" if params else "DELETE 3"
+
+    def nextset(self) -> bool:
+        return False
+
+
+class FakeMigrationConnection:
+    """Records what a migration run does; can refuse the advisory lock or fail one migration's SQL."""
+
+    def __init__(
+        self, applied: dict[int, str] | None = None, lock_free: bool = True, failing_sql: str | None = None
+    ) -> None:
+        self.applied = applied or {}
+        self.lock_free = lock_free
+        self.failing_sql = failing_sql
+        self.statements: list[str] = []
+        self.cursor_statements: list[tuple[str, Any]] = []
+        self.transactions: list[str] = []
+        self.closed = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.closed = True
+
+    def execute(self, query: str, params: Any = None) -> FakeResult:
+        self.statements.append(query)
+        if "pg_try_advisory_lock" in query:
+            return FakeResult([(self.lock_free,)])
+        if query.startswith("SELECT version, checksum"):
+            return FakeResult(list(self.applied.items()))
+        return FakeResult([])
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        try:
+            yield
+        except BaseException:
+            self.transactions.append("rollback")
+            raise
+        self.transactions.append("commit")
+
+    def cursor(self) -> FakeCursor:
+        return FakeCursor(self)
+
+    def ledger_versions(self) -> list[int]:
+        return [params[0] for query, params in self.cursor_statements if "schema_migrations" in query]
+
+
+def _write(directory: Path, name: str, sql: str = "SELECT 1;") -> None:
+    (directory / name).write_text(sql, encoding="utf-8")
+
+
+@pytest.fixture
+def migrations_dir(tmp_path: Path) -> Path:
+    _write(tmp_path, "0002_second.sql", "ALTER TABLE t ADD COLUMN b INT;")
+    _write(tmp_path, "0001_first.sql", "CREATE TABLE t (a INT);")
+    return tmp_path
+
+
+def test_repository_migrations_are_discovered_in_order() -> None:
+    labels = [migration.label for migration in discover_migrations(MIGRATIONS_DIR)]
+
+    assert labels == [
+        "0001_baseline",
+        "0002_cache_identity_per_media_type",
+        "0003_remove_tv_rows_keyed_by_series_id",
+    ]
+
+
+def test_discover_migrations_orders_by_version(migrations_dir: Path) -> None:
+    assert [migration.version for migration in discover_migrations(migrations_dir)] == [1, 2]
+
+
+@pytest.mark.parametrize("bad_name", ["1_first.sql", "0003_Mixed_Case.sql", "0003-dash.sql"])
+def test_discover_migrations_rejects_misnamed_files(migrations_dir: Path, bad_name: str) -> None:
+    _write(migrations_dir, bad_name)
+
+    with pytest.raises(MigrationError, match="Invalid migration file name"):
+        discover_migrations(migrations_dir)
+
+
+def test_discover_migrations_rejects_duplicate_versions(migrations_dir: Path) -> None:
+    _write(migrations_dir, "0002_other.sql")
+
+    with pytest.raises(MigrationError, match="used by more than one file"):
+        discover_migrations(migrations_dir)
+
+
+def test_discover_migrations_missing_folder_raises(tmp_path: Path) -> None:
+    with pytest.raises(MigrationError, match="not found"):
+        discover_migrations(tmp_path / "missing")
+
+
+def test_discover_migrations_empty_folder_raises(tmp_path: Path) -> None:
+    with pytest.raises(MigrationError, match="No migration files"):
+        discover_migrations(tmp_path)
+
+
+def test_checksum_is_the_same_for_crlf_and_lf_text() -> None:
+    assert checksum_of("SELECT 1;\r\nSELECT 2;\r\n") == checksum_of("SELECT 1;\nSELECT 2;\n")
+
+
+def test_plan_migrations_skips_applied_versions(migrations_dir: Path) -> None:
+    first, second = discover_migrations(migrations_dir)
+
+    assert plan_migrations([first, second], {1: first.checksum}) == [second]
+
+
+def test_plan_migrations_applied_file_changed_raises(migrations_dir: Path) -> None:
+    migrations = discover_migrations(migrations_dir)
+
+    with pytest.raises(MigrationError, match="0001_first changed after it was applied"):
+        plan_migrations(migrations, {1: "checksum-of-the-original-file"})
+
+
+def test_apply_migrations_runs_pending_files_in_order_and_records_them(
+    migrations_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    connection = FakeMigrationConnection()
+
+    with caplog.at_level(logging.INFO):
+        applied = apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection)
+
+    assert [migration.version for migration in applied] == [1, 2]
+    assert connection.ledger_versions() == [1, 2]
+    assert connection.transactions == ["commit", "commit"]
+    assert any("pg_try_advisory_lock" in statement for statement in connection.statements)
+    assert connection.closed
+    assert any("Applied migration 0001_first" in record.getMessage() for record in caplog.records)
+
+
+def test_apply_migrations_with_nothing_pending_changes_nothing(
+    migrations_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    migrations = discover_migrations(migrations_dir)
+    connection = FakeMigrationConnection(applied={m.version: m.checksum for m in migrations})
+
+    with caplog.at_level(logging.INFO):
+        applied = apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection)
+
+    assert applied == []
+    assert connection.ledger_versions() == []
+    assert any("no migrations pending" in record.getMessage() for record in caplog.records)
+
+
+def test_apply_migrations_failure_rolls_back_that_file_and_stops(migrations_dir: Path) -> None:
+    failing: Migration = discover_migrations(migrations_dir)[1]
+    connection = FakeMigrationConnection(failing_sql=failing.sql)
+
+    with pytest.raises(MigrationError, match="0002_second failed and was rolled back"):
+        apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection)
+
+    assert connection.ledger_versions() == [1]
+    assert connection.transactions == ["commit", "rollback"]
+    assert connection.closed
+
+
+def test_apply_migrations_lock_held_elsewhere_raises_after_waiting(migrations_dir: Path) -> None:
+    connection = FakeMigrationConnection(lock_free=False)
+
+    with pytest.raises(MigrationError, match="Timed out waiting"):
+        apply_migrations(CONNINFO, _logger, migrations_dir, connect=lambda conninfo: connection, lock_wait_seconds=0)
+
+    assert connection.ledger_versions() == []
+    assert connection.closed

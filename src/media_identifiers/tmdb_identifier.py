@@ -59,7 +59,8 @@ def request_tmdb_series_details(tmdb_id: int) -> MediaData | None:
         tmdb_id: TMDB series id.
 
     Returns:
-        The series record (``tmdb_series_id`` set), or None when TMDB returns nothing.
+        The series record, or None when TMDB returns nothing. The series id is in ``tmdb_series_id``; ``tmdb_id`` is
+        left empty because on a TV record it holds the episode id.
 
     Raises:
         ValueError: If ``tmdb_id`` is empty.
@@ -77,7 +78,13 @@ def request_tmdb_series_details(tmdb_id: int) -> MediaData | None:
         _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
         return None
 
-    return _get_record_builder_for_tmdb_data(series_details).with_media_type(TV).with_tmdb_series_id(tmdb_id).build()
+    return (
+        _get_record_builder_for_tmdb_data(series_details)
+        .with_media_type(TV)
+        .with_tmdb_series_id(tmdb_id)
+        .with_tmdb_id(None)
+        .build()
+    )
 
 
 @_logger.trace("request_tmdb_series_episode_details")
@@ -211,7 +218,7 @@ def identify_media_with_tmdb_series_search(query: str | None, year: int | None =
     """Search series by title (and first-air year when plausible) and return the first match.
 
     Returns:
-        The first match as a TV record with ``tmdb_series_id`` set, or None.
+        The first match as a TV record with the series id in ``tmdb_series_id`` (``tmdb_id`` empty), or None.
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -221,7 +228,8 @@ def identify_media_with_tmdb_series_search(query: str | None, year: int | None =
         return None
 
     series_data = result.with_media_type(TV).build()
-    series_data["tmdb_series_id"] = series_data.get("tmdb_id")
+    series_data["tmdb_series_id"] = series_data["tmdb_id"]
+    series_data["tmdb_id"] = None
 
     return series_data
 

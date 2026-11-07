@@ -2,6 +2,7 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,7 @@ from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 
 import main
 from main import app, get_media_identifier
+from src.database.migrations import MigrationError
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.models.media_info import MediaData
@@ -277,32 +279,35 @@ def test_statistics_lookup_failure_returns_generic_500(cache: InMemoryCache) -> 
     assert request_history.requested_limits == [100]
 
 
-def test_lifespan_opens_the_pool_and_schema_then_closes_the_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lifespan_migrates_then_opens_the_pool_and_closes_it_on_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(main, "build_pool_config", lambda: "config")
-    monkeypatch.setattr(main, "create_pool", lambda config: events.append(f"create_pool:{config}"))
-    monkeypatch.setattr(main, "ensure_schema", lambda: events.append("ensure_schema"))
+    monkeypatch.setattr(main, "build_pool_config", lambda: SimpleNamespace(conn_info="conninfo"))
+    monkeypatch.setattr(main, "apply_migrations", lambda conninfo, logger: events.append(f"migrate:{conninfo}"))
+    monkeypatch.setattr(main, "create_pool", lambda config: events.append("create_pool"))
     monkeypatch.setattr(main, "close_pool", lambda: events.append("close_pool"))
 
     with TestClient(app):
         events.append("serving")
 
-    assert events == ["create_pool:config", "ensure_schema", "serving", "close_pool"]
+    assert events == ["migrate:conninfo", "create_pool", "serving", "close_pool"]
 
 
-def test_lifespan_schema_failure_still_closes_the_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    closed: list[bool] = []
+def test_lifespan_migration_failure_stops_startup_before_opening_the_pool(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    events: list[str] = []
 
-    def failing_schema() -> None:
-        raise RuntimeError("Error creating the cache table")
+    def failing_migrations(conninfo: str, logger: object) -> None:
+        raise MigrationError("Migration 0003_remove_tv_rows_keyed_by_series_id failed and was rolled back")
 
-    monkeypatch.setattr(main, "build_pool_config", lambda: "config")
-    monkeypatch.setattr(main, "create_pool", lambda config: None)
-    monkeypatch.setattr(main, "ensure_schema", failing_schema)
-    monkeypatch.setattr(main, "close_pool", lambda: closed.append(True))
+    monkeypatch.setattr(main, "build_pool_config", lambda: SimpleNamespace(conn_info="conninfo"))
+    monkeypatch.setattr(main, "apply_migrations", failing_migrations)
+    monkeypatch.setattr(main, "create_pool", lambda config: events.append("create_pool"))
+    monkeypatch.setattr(main, "close_pool", lambda: events.append("close_pool"))
 
-    with pytest.raises(RuntimeError, match="Error creating the cache table"):
+    with caplog.at_level(logging.ERROR), pytest.raises(MigrationError):
         with TestClient(app):
             pass
 
-    assert closed == [True]
+    assert events == []
+    assert any(record.exc_info and "migrations failed" in record.getMessage() for record in caplog.records)

@@ -1,6 +1,7 @@
 """Entry point of identification: runs the pipeline for a request and caches what it identifies."""
 
-from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_tv
+from src.media_identifiers.constants import MOVIE, TV
+from src.media_identifiers.media_type_helpers import has_media_type, is_media_type_valid, is_movie, is_tv
 from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
 from src.models.media_identification_request import MediaIdentificationRequest
 from src.models.media_info import MediaData
@@ -86,44 +87,70 @@ class MediaIdentifier:
         media_type = media.get("media_type")
 
         if is_movie(media_type):
-            tmdb_id = media.get("tmdb_id")
-            if tmdb_id is None:
-                self._logger.debug("Movie media lacks TMDb ID; returning without caching.")
-                return media
-
-            existing = self._cache.get_cached_by_tmdb_id(tmdb_id)
-            if existing:
-                self._logger.debug("Movie already cached by TMDb ID.")
-                return existing
-
-            return self._cache_or_return(media)
+            return self._persist_movie(media)
 
         if is_tv(media_type):
-            tmdb_id = media.get("tmdb_id")
-            season = media.get("season")
-            episode = media.get("episode")
-            tmdb_series_id = media.get("tmdb_series_id")
-
-            if tmdb_id is not None:
-                existing = self._cache.get_cached_by_tmdb_id(tmdb_id)
-                if existing:
-                    self._logger.debug("Episode already cached by TMDb ID.")
-                    return existing
-
-            if tmdb_series_id is not None and season is not None and episode is not None:
-                existing = self._cache.get_cached_tv_episode(tmdb_series_id, season, episode)
-                if existing:
-                    self._logger.debug("Episode already cached by series/season/episode.")
-                    return existing
-
-            if tmdb_id is None:
-                self._logger.debug("Episode lacks TMDb episode ID; returning without caching.")
-                return media
-
-            return self._cache_or_return(media)
+            return self._persist_episode(media)
 
         self._logger.debug("Unknown media type; returning without caching.")
         return media
+
+    def _persist_movie(self, media: MediaData) -> MediaData:
+        tmdb_id = media.get("tmdb_id")
+        if tmdb_id is None:
+            self._logger.debug("Movie media lacks TMDb ID; returning without caching.")
+            return media
+
+        existing = self._accept_cached(self._cache.get_cached_by_tmdb_id(tmdb_id, MOVIE), MOVIE)
+        if existing:
+            self._logger.debug("Movie already cached by TMDb ID.")
+            return existing
+
+        return self._cache_or_return(media)
+
+    def _persist_episode(self, media: MediaData) -> MediaData:
+        tmdb_id = media.get("tmdb_id")
+        tmdb_series_id = media.get("tmdb_series_id")
+        season = media.get("season")
+        episode = media.get("episode")
+
+        if tmdb_series_id is None or season is None or episode is None:
+            self._logger.info("Episode lacks its TMDb series ID, season or episode; returning without caching.")
+            return media
+
+        existing = self._accept_cached(self._cache.get_cached_tv_episode(tmdb_series_id, season, episode), TV)
+        if existing:
+            self._logger.debug("Episode already cached by series/season/episode.")
+            return existing
+
+        if tmdb_id is None:
+            self._logger.info(
+                f"TMDb has no episode S{season}E{episode} for series {tmdb_series_id} yet; returning without caching."
+            )
+            return media
+
+        if tmdb_id == tmdb_series_id:
+            self._logger.warning(
+                f"Episode record carries its series ID {tmdb_series_id} as TMDb ID; returning without caching."
+            )
+            return media
+
+        existing = self._accept_cached(self._cache.get_cached_by_tmdb_id(tmdb_id, TV), TV)
+        if existing:
+            self._logger.debug("Episode already cached by TMDb ID.")
+            return existing
+
+        return self._cache_or_return(media)
+
+    def _accept_cached(self, cached: MediaData | None, media_type: str) -> MediaData | None:
+        if cached is None or has_media_type(cached, media_type):
+            return cached
+
+        self._logger.warning(
+            f"Discarded cache hit of another media type: identified {media_type!r}, cached row {cached.get('id')} "
+            f"is {cached.get('media_type')!r} with TMDb ID {cached.get('tmdb_id')}."
+        )
+        return None
 
     def _cache_or_return(self, media: MediaData) -> MediaData:
         if not self._cache.is_cacheable(media):

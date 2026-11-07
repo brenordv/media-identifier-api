@@ -27,14 +27,3 @@ def get_request_logger() -> RequestLogger:
 def get_openai_logger() -> OpenAILogger:
     """Return the shared OpenAI token usage repository."""
     return OpenAILogger()
-
-
-def ensure_schema() -> None:
-    """Create every table the repositories use, when missing.
-
-    Raises:
-        RuntimeError: If the database rejects the DDL.
-    """
-    get_cache_repository().ensure_schema()
-    get_request_logger().ensure_schema()
-    get_openai_logger().ensure_schema()
