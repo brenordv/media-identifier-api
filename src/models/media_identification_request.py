@@ -1,14 +1,18 @@
+"""An identification request: either a file name to analyze or metadata the caller already knows."""
+
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from enum import StrEnum
+from typing import Any, Self
 
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.helpers import apply_basic_media_attributes
 from src.media_identifiers.media_type_helpers import is_tv
-from src.models.media_info import MediaInfoBuilder
+from src.models.media_info import MediaData, MediaInfoBuilder
 
 
-class RequestMode(str, Enum):
+class RequestMode(StrEnum):
+    """How the media is described: by file name, or by known metadata."""
+
     FILENAME = "filename"
     METADATA = "metadata"
 
@@ -18,11 +22,21 @@ def _normalize_media_type(media_type: str | None) -> str | None:
         return None
 
     builder = MediaInfoBuilder().with_media_type(media_type)
-    return builder.build().get("media_type")
+    normalized: str | None = builder.build().get("media_type")
+    return normalized
 
 
 @dataclass
 class MediaIdentificationRequest:
+    """A validated identification request.
+
+    Filename requests need ``file_path``. Metadata requests need ``media_type``, ``title`` and ``year``, plus
+    ``season`` and ``episode`` for TV. ``media_type`` is normalized to ``movie``/``tv`` (``unknown`` otherwise).
+
+    Raises:
+        ValueError: On construction, when the fields required by ``mode`` are missing.
+    """
+
     mode: RequestMode
     file_path: str | None = None
     media_type: str | None = None
@@ -40,7 +54,15 @@ class MediaIdentificationRequest:
         self._validate()
 
     @classmethod
-    def from_filename(cls, file_path: str) -> "MediaIdentificationRequest":
+    def from_filename(cls, file_path: str) -> Self:
+        """Build a filename request.
+
+        Args:
+            file_path: The file name or path to analyze; surrounding whitespace is removed.
+
+        Raises:
+            ValueError: If ``file_path`` is blank.
+        """
         if file_path is None or file_path.strip() == "":
             raise ValueError("file_path must be provided for filename requests.")
 
@@ -59,7 +81,12 @@ class MediaIdentificationRequest:
         tmdb_series_id: int | None = None,
         imdb_id: str | None = None,
         extra: dict[str, Any] | None = None,
-    ) -> "MediaIdentificationRequest":
+    ) -> Self:
+        """Build a metadata request.
+
+        Raises:
+            ValueError: If a field required for the media type is missing.
+        """
         return cls(
             mode=RequestMode.METADATA,
             media_type=media_type,
@@ -75,17 +102,21 @@ class MediaIdentificationRequest:
 
     @property
     def is_filename_mode(self) -> bool:
+        """True for filename requests."""
         return self.mode == RequestMode.FILENAME
 
     @property
     def is_metadata_mode(self) -> bool:
+        """True for metadata requests."""
         return self.mode == RequestMode.METADATA
 
     @property
     def has_file_path(self) -> bool:
+        """True when the request carries a non-blank file path."""
         return bool(self.file_path and self.file_path.strip())
 
-    def seed_media_info(self) -> dict[str, Any]:
+    def seed_media_info(self) -> MediaData:
+        """Return the media record the pipeline starts from, filled with what the request already knows."""
         builder = apply_basic_media_attributes(
             MediaInfoBuilder(),
             title=self.title,
@@ -110,7 +141,8 @@ class MediaIdentificationRequest:
         return builder.build()
 
     def to_logging_payload(self) -> dict[str, Any]:
-        payload = {
+        """Return the request's fields for log messages (the file path itself is reduced to a flag)."""
+        payload: dict[str, Any] = {
             "mode": self.mode.value,
             "media_type": self.media_type,
             "title": self.title,
@@ -148,6 +180,7 @@ class MediaIdentificationRequest:
                 raise ValueError("season and episode must be provided for TV metadata requests.")
 
     def derive_searchable_reference(self) -> str | None:
+        """Return the normalized search key for ``title``, or None without a title."""
         if self.title is None:
             return None
         return create_searchable_reference(self.title)

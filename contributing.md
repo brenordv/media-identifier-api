@@ -46,7 +46,7 @@ These are intentionally opinionated to keep the codebase coherent.
   - If you think a pattern should change, discuss it first instead of introducing inconsistencies.
 
 - **Formatting & linting**
-  - Use the repo’s configured tools (e.g., `black`, `isort`, `ruff`/`flake8`, `mypy`/`pyright`).
+  - Use the repo's configured tools, run through uv: `ruff check`, `ruff format`, `mypy`, `pytest`.
   - Do **not** change their configuration casually.
   - Code should be warning-free in the configured linter and type-checker.
 

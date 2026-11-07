@@ -29,70 +29,72 @@ We also log all requests coming in, the results, and if we use OpenAI, we log th
 
 ## Endpoints
 
-The application is built with FastAPI and exposes the GuessIt library's functionality through a RESTful API. It provides three main endpoints:
+The application is built with FastAPI and exposes the GuessIt library's functionality through a RESTful API. It provides these endpoints:
 
 - `/api/guess` - Analyzes a filename and returns structured information
 - `/api/media-info` - Returns information about a media based on its title, etc.
+- `/api/media-info/{media_id}` - Returns a cached media record by its id
 - `/api/health` - Provides a health check to verify the API is functioning correctly
 - `/api/statistics` - Returns statistics about requests made to the API
 
 ## Installation and Usage
 ### Environment variables
-To use this, you must set a handful of environment variables:
+To use this, you must set a handful of environment variables. Copy `.env.example` to `.env` and fill it in:
 ```dotenv
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=P4ssword!
-TMDB_API_KEY=your-tmdb-api-key
-OPENAI_API_KEY=your-open-ai-key
-OPENAI_MODEL=gpt-4o-mini # I recommend this model, but you can use any other you like.
-OPENAI_ORGANIZATION=your-organization-key
+POSTGRES_PASSWORD=change-me
+POSTGRES_DB=extended_media_info
+TMDB_API_KEY=your-tmdb-api-read-access-token
+OPENAI_API_KEY=your-openai-api-key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_ORGANIZATION=your-openai-organization-id
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
+
+- `TMDB_API_KEY` is TMDB's "API Read Access Token" (it is sent as a bearer token).
+- `OPENAI_MODEL` defaults to `gpt-4o-mini`, which works well here; other models work too.
+- `POSTGRES_DB` defaults to `extended_media_info`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` is required: logs and traces are exported to that OTLP/HTTP collector.
+- Keep comments on their own lines: Docker's `--env-file` treats a `#` after a value as part of the value.
 
 ### Local Installation
 
 #### Prerequisites
-- Python 3.11 or higher
-- A PostgresSQL database
-
-#### Using Virtual Environment (recommended)
+- Python 3.12 or higher
+- [uv](https://docs.astral.sh/uv/)
+- A PostgreSQL database
 
 ```bash
 # Clone the repository
 git clone https://github.com/brenordv/media-identifier-api.git
 cd media-identifier-api
 
-# Create a virtual environment
-python -m venv venv
-
-# Activate the virtual environment
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Create the virtual environment and install the locked dependencies
+uv sync
 
 # Run the application
-python main.py
+uv run python main.py
 ```
 
 The API will be available at http://localhost:8000
 
-#### Without Virtual Environment
+### Tests and checks
 
 ```bash
-# Clone the repository
-git clone https://github.com/brenordv/media-identifier-api.git
-cd media-identifier-api
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest --cov
+```
 
-# Install dependencies
-pip install -r requirements.txt
+The unit tests need no database, TMDB, OpenAI or telemetry collector: they ignore `.env` and run with OpenTelemetry
+disabled. The integration suite calls the live services configured in `.env` and writes to that database, so it only
+runs on request:
 
-# Run the application
-python main.py
+```bash
+MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration
 ```
 
 ### Using Docker
@@ -109,12 +111,15 @@ docker build -t guessit-api:latest .
 #### Running the Docker Container
 
 ```bash
-# On Linux/macOS:
+# On Linux/macOS (reads .env next to the script, or the file in ENV_FILE):
 ./run-image.sh
 
 # On Windows (PowerShell):
-docker run -d --name guessit-api -p 10147:10147 --restart unless-stopped guessit-api:latest
+docker run -d --name media-identifier-api --env-file .env -p 10147:10147 --restart unless-stopped media-identifier-api:latest
 ```
+
+The image contains no configuration (`.dockerignore` keeps `.env` out of the build), so the settings must be passed
+when the container starts.
 
 The API will be available at http://localhost:10147
 
@@ -221,10 +226,10 @@ This project relies on:
 - [GuessIt](https://github.com/guessit-io/guessit) - The core library for parsing filenames
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern, fast web framework for building APIs
 - [Uvicorn](https://www.uvicorn.org/) - ASGI server for running the application
-- [Requests](https://requests.readthedocs.io/) - HTTP library for testing
-- [psycopg2](https://pypi.org/project/psycopg2/) - Library to interact with PostgresSQL database
+- [Requests](https://requests.readthedocs.io/) - HTTP client for the TMDB API
+- [raccoontools-db](https://pypi.org/project/raccoontools-db/) - PostgreSQL connection pool on top of [psycopg 3](https://www.psycopg.org/psycopg3/)
 - [python-dotenv](https://pypi.org/project/python-dotenv/) - Library to handle `.env` files
-- [simple-log-factory](https://pypi.org/project/simple-log-factory/) - Helper lib to facilitate the use of the native Python logging (Shameless plug: I made this. 😁)
+- [simple-log-factory-ext-otel](https://pypi.org/project/simple-log-factory-ext-otel/) - OpenTelemetry logging and tracing on top of [simple-log-factory](https://pypi.org/project/simple-log-factory/) (Shameless plug: I made these. 😁)
 - [openai](https://pypi.org/project/openai/) - Official OpenAI SDK.
 
 ## License

@@ -1,0 +1,12 @@
+# Allowlist: only what the image needs. Everything else (.env, IDE and agent settings, tests) stays out.
+*
+!main.py
+!src/
+!migrations/
+!pyproject.toml
+!uv.lock
+!.python-version
+!readme.md
+!LICENSE
+**/__pycache__
+**/*.pyc

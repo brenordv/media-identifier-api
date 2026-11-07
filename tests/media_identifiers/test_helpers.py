@@ -5,7 +5,7 @@ from src.media_identifiers.helpers import (
 from src.models.media_info import MediaInfoBuilder
 
 
-def test_apply_basic_media_attributes_sets_core_fields():
+def test_apply_basic_media_attributes_sets_core_fields() -> None:
     builder = apply_basic_media_attributes(
         MediaInfoBuilder(),
         title="Example Title",
@@ -26,13 +26,13 @@ def test_apply_basic_media_attributes_sets_core_fields():
     assert data["episode"] == 5
 
 
-def test_parse_season_episode_string_valid_value():
+def test_parse_season_episode_string_valid_value() -> None:
     season, episode = parse_season_episode_string("Season: 3, Episode: 10")
     assert season == 3
     assert episode == 10
 
 
-def test_parse_season_episode_string_invalid_value():
+def test_parse_season_episode_string_invalid_value() -> None:
     season, episode = parse_season_episode_string("invalid-format")
     assert season is None
     assert episode is None

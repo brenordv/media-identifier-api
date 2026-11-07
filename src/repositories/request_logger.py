@@ -1,57 +1,80 @@
-import psycopg2
-from opentelemetry import trace
-from psycopg2.pool import SimpleConnectionPool
+"""Repository for the ``request_history`` table, which records every API request and its outcome."""
 
-from src.repositories.base_repository import BaseRepository
+from typing import Any
+
+import psycopg
+from opentelemetry import trace
+from psycopg.rows import dict_row
+from raccoontools_db import get_pool
+
+from src.repositories.base_repository import BaseRepository, PoolGetter
 from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("RequestLogger")
 
 
 class RequestLogger(BaseRepository):
-    def __init__(self, conn_pool: SimpleConnectionPool, skip_database_initialization: bool = False):
-        super().__init__(conn_pool, _logger)
-        if not skip_database_initialization:
-            self._ensure_table_exists()
+    """Records requests when they start and when they complete.
 
-    def _ensure_table_exists(self):
+    Args:
+        pool_getter: Returns the connection pool to use.
+    """
+
+    def __init__(self, pool_getter: PoolGetter = get_pool) -> None:
+        super().__init__(_logger, pool_getter)
+
+    def ensure_schema(self) -> None:
+        """Create the ``request_history`` table and its index when they do not exist.
+
+        Raises:
+            RuntimeError: If the database rejects the DDL.
+        """
         try:
-            with self._get_connection() as conn:
-                with conn.cursor() as cursor:
-                    self._logger.debug("Enabling uuid-ossp extension")
-                    cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+            with self._get_connection() as conn, conn.cursor() as cursor:
+                self._logger.debug("Enabling uuid-ossp extension")
+                cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
 
-                    self._logger.debug("Creating request_history table if it does not exist")
-                    create_table_query = """
-                                         CREATE TABLE IF NOT EXISTS request_history (
-                                             id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                                             endpoint TEXT NOT NULL,
-                                             filename TEXT NOT NULL,
-                                             requester_ip TEXT NOT NULL,
-                                             result_status INTEGER NULL,
-                                             result_media_id UUID NULL,
-                                             received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                             responded_at TIMESTAMP NULL,
-                                             error_message TEXT NULL,
-                                             elapsed_time INTERVAL GENERATED ALWAYS AS (responded_at - received_at) STORED
-                                             );"""
-                    cursor.execute(create_table_query)
+                self._logger.debug("Creating request_history table if it does not exist")
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS request_history (
+                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                        endpoint TEXT NOT NULL,
+                        filename TEXT NOT NULL,
+                        requester_ip TEXT NOT NULL,
+                        result_status INTEGER NULL,
+                        result_media_id UUID NULL,
+                        received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        responded_at TIMESTAMP NULL,
+                        error_message TEXT NULL,
+                        elapsed_time INTERVAL GENERATED ALWAYS AS (responded_at - received_at) STORED
+                    );
+                    """
+                )
 
-                    self._logger.debug("Creating indexes for request_history table")
-                    cursor.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_request_history_received_at_desc
-                        ON request_history (received_at DESC);
-                        """
-                    )
-                    conn.commit()
-        except psycopg2.Error as e:
-            error_message = f"Error creating the request logger table: {str(e)}"
-            self._logger.error(error_message)
-            raise RuntimeError(error_message) from e
+                self._logger.debug("Creating indexes for request_history table")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_request_history_received_at_desc "
+                    "ON request_history (received_at DESC);"
+                )
+        except psycopg.Error as e:
+            raise RuntimeError(f"Error creating the request logger table: {e}") from e
 
     @_logger.trace("log_start")
-    def log_start(self, endpoint: str, filename: str, requester_ip: str):
+    def log_start(self, endpoint: str, filename: str, requester_ip: str) -> str:
+        """Record that a request arrived.
+
+        Args:
+            endpoint: Route that received the request.
+            filename: The file name or query the request carried.
+            requester_ip: Client address.
+
+        Returns:
+            The id of the new ``request_history`` row.
+
+        Raises:
+            RuntimeError: If the insert fails.
+        """
         span = trace.get_current_span()
         if span.is_recording():
             span.set_attributes(
@@ -64,27 +87,43 @@ class RequestLogger(BaseRepository):
                 }
             )
         try:
-            self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
-            with self._get_connection() as conn:
-                with conn.cursor() as cursor:
-                    insert_query = """
-                    INSERT INTO request_history (endpoint, filename, requester_ip, received_at)
-                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                    RETURNING id;
-                    """
-                    cursor.execute(insert_query, (endpoint, filename, requester_ip))
-                    request_id = cursor.fetchone()[0]
-                    conn.commit()
+            self._logger.debug(f"Logging request start for {filename!r} from {requester_ip}")
+            with self._get_connection() as conn, conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO request_history (endpoint, filename, requester_ip, received_at) "
+                    "VALUES (%s, %s, %s, CURRENT_TIMESTAMP) RETURNING id;",
+                    (endpoint, filename, requester_ip),
+                )
+                row = cursor.fetchone()
+        except psycopg.Error as e:
+            raise RuntimeError(f"Error logging request start: {e}") from e
 
-                    self._logger.debug(f"Request logged with ID: {request_id}")
-                    return str(request_id)
-        except psycopg2.Error as e:
-            error_message = f"Error logging request start: {str(e)}"
-            self._logger.error(error_message)
-            raise RuntimeError(error_message) from e
+        if row is None:
+            raise RuntimeError("Error logging request start: the insert returned no id")
+
+        request_id = str(row[0])
+        self._logger.debug(f"Request logged with ID: {request_id}")
+        return request_id
 
     @_logger.trace("log_completed")
-    def log_completed(self, request_id: str, status_code: int, result_media_id: str = None, error_message: str = None):
+    def log_completed(
+        self,
+        request_id: str,
+        status_code: int,
+        result_media_id: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Record how a request ended.
+
+        Args:
+            request_id: Id returned by :meth:`log_start`.
+            status_code: HTTP status sent to the client.
+            result_media_id: Id of the cached media returned, if any.
+            error_message: Operator-facing description of a failure, if any.
+
+        Raises:
+            RuntimeError: If the update fails.
+        """
         span = trace.get_current_span()
         if span.is_recording():
             span.set_attributes(
@@ -99,58 +138,51 @@ class RequestLogger(BaseRepository):
                 span.set_attribute("media.id", result_media_id)
         try:
             self._logger.debug(
-                f"Logging request completion for ID {request_id} with status {status_code}, and result media ID {result_media_id}"
+                f"Logging request completion for ID {request_id} with status {status_code}, "
+                f"and result media ID {result_media_id}"
             )
-            with self._get_connection() as conn:
-                with conn.cursor() as cursor:
-                    update_query = """
-                    UPDATE request_history
-                    SET responded_at = CURRENT_TIMESTAMP,
-                        result_status = %s,
-                        result_media_id = %s,
-                        error_message = %s
-                    WHERE id = %s;
-                    """
-                    cursor.execute(update_query, (status_code, result_media_id, error_message, request_id))
-                    conn.commit()
-
-                    self._logger.debug(f"Request ID {request_id} updated successfully")
-        except psycopg2.Error as e:
-            error_message = f"Error logging request completion: {str(e)}"
-            self._logger.error(error_message)
-            raise RuntimeError(error_message) from e
+            with self._get_connection() as conn, conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE request_history SET responded_at = CURRENT_TIMESTAMP, result_status = %s, "
+                    "result_media_id = %s, error_message = %s WHERE id = %s;",
+                    (status_code, result_media_id, error_message, request_id),
+                )
+            self._logger.debug(f"Request ID {request_id} updated successfully")
+        except psycopg.Error as e:
+            raise RuntimeError(f"Error logging request completion: {e}") from e
 
     @_logger.trace("get_recent_requests")
-    def get_recent_requests(self, limit: int = 100):
+    def get_recent_requests(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return the most recent requests, newest first.
+
+        Args:
+            limit: Maximum number of requests to return.
+
+        Returns:
+            One dict per request with its id, file name, client address, status, result id, timestamps, elapsed
+            time and error message.
+
+        Raises:
+            RuntimeError: If the query fails.
+        """
         try:
             self._logger.debug(f"Fetching recent requests with limit {limit}")
-            with self._get_connection() as conn:
-                with conn.cursor() as cursor:
-                    select_query = """
-                    SELECT id, filename, requester_ip, result_status, result_media_id, received_at, responded_at, elapsed_time, error_message
-                    FROM request_history
-                    ORDER BY received_at DESC
-                    LIMIT %s;
-                    """
-                    cursor.execute(select_query, (limit,))
-                    results = cursor.fetchall()
+            with self._get_connection() as conn, conn.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    "SELECT id, filename, requester_ip, result_status, result_media_id, received_at, responded_at, "
+                    "elapsed_time, error_message FROM request_history ORDER BY received_at DESC LIMIT %s;",
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+        except psycopg.Error as e:
+            raise RuntimeError(f"Error fetching recent requests: {e}") from e
 
-                    self._logger.debug(f"Fetched {len(results)} recent requests")
-                    return [
-                        {
-                            "id": str(row[0]),
-                            "filename": row[1],
-                            "requester_ip": row[2],
-                            "result_status": row[3],
-                            "result_media_id": row[4],
-                            "received_at": row[5],
-                            "responded_at": row[6],
-                            "elapsed_time": row[7],
-                            "error_message": row[8],
-                        }
-                        for row in results
-                    ]
-        except psycopg2.Error as e:
-            error_message = f"Error fetching recent requests: {str(e)}"
-            self._logger.error(error_message)
-            raise RuntimeError(error_message) from e
+        self._logger.debug(f"Fetched {len(rows)} recent requests")
+        return [
+            {
+                **row,
+                "id": str(row["id"]),
+                "result_media_id": str(row["result_media_id"]) if row["result_media_id"] is not None else None,
+            }
+            for row in rows
+        ]

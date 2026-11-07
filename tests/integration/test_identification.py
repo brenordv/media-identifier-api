@@ -1,39 +1,29 @@
+"""Live end-to-end checks against TMDB, OpenAI and the configured Postgres database.
+
+Run with ``MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration``; the database settings come from `.env`.
+These tests write to the database.
+"""
+
 import os
+from collections.abc import Iterator
 
-import httpx
 import pytest
-from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
-load_dotenv()
+pytestmark = pytest.mark.integration
 
-REQUIRED_ENV_VARS = [
-    "TMDB_API_KEY",
-    "OPENAI_API_KEY",
-]
-
-_missing_env = [env for env in REQUIRED_ENV_VARS if not os.environ.get(env)]
-if _missing_env:
-    pytest.skip(
-        f"Skipping integration tests: missing environment variables {_missing_env}",
-        allow_module_level=True,
-    )
-
-from main import app
+if os.environ.get("MEDIA_IDENTIFIER_RUN_INTEGRATION") != "1":
+    pytest.skip("Set MEDIA_IDENTIFIER_RUN_INTEGRATION=1 to run the integration suite.", allow_module_level=True)
 
 
 @pytest.fixture(scope="module")
-def anyio_backend():
-    return "asyncio"
+def client() -> Iterator[TestClient]:
+    from main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-@pytest.fixture(scope="module")
-async def async_client():
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client
-
-
-@pytest.mark.anyio
 @pytest.mark.parametrize(
     "query",
     [
@@ -56,20 +46,13 @@ async def async_client():
         "/watch/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD/Subs/Stake.Land.II.2016.1080p.BluRay.x264-PSYCHD.idx",
     ],
 )
-async def test_guess_endpoint_identification(async_client: httpx.AsyncClient, query: str):
-    response = await async_client.get("/api/guess", params={"it": query})
+def test_guess_endpoint_identification(client: TestClient, query: str) -> None:
+    response = client.get("/api/guess", params={"it": query})
+
     assert response.status_code in (200, 204)
 
 
-@pytest.mark.anyio
-async def test_media_info_endpoint_movie_metadata(async_client: httpx.AsyncClient):
-    response = await async_client.get(
-        "/api/media-info",
-        params={
-            "title": "Possessed",
-            "year": 2000,
-            "media_type": "movie",
-        },
-    )
+def test_media_info_endpoint_movie_metadata(client: TestClient) -> None:
+    response = client.get("/api/media-info", params={"title": "Possessed", "year": 2000, "media_type": "movie"})
 
     assert response.status_code in (200, 204)

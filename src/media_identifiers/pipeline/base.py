@@ -1,17 +1,24 @@
+"""Core types of the identification pipeline: the shared context, step results, handlers and the controller."""
+
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
+from typing import Self
 
 from opentelemetry import trace
+from simple_log_factory_ext_otel import TracedLogger
 
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
-from src.models.media_info import is_media_type_valid, merge_media_info
+from src.models.media_info import MediaData, is_media_type_valid, merge_media_info
+from src.repositories.media_info_cache import MediaInfoCache
 from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("Pipeline")
 
 
-class StepStatus(str, Enum):
+class StepStatus(StrEnum):
+    """Outcome of one handler: continue (SUCCESS/SKIP), stop with a result (DONE), or abort (FATAL)."""
+
     SUCCESS = "success"
     SKIP = "skip"
     DONE = "done"
@@ -20,102 +27,145 @@ class StepStatus(str, Enum):
 
 @dataclass
 class StepResult:
+    """What a handler reports back to the controller."""
+
     status: StepStatus
     message: str | None = None
     error: BaseException | None = None
 
     @classmethod
-    def success(cls, message: str | None = None) -> "StepResult":
+    def success(cls, message: str | None = None) -> Self:
+        """The step changed the context; continue."""
         return cls(status=StepStatus.SUCCESS, message=message)
 
     @classmethod
-    def skip(cls, message: str | None = None) -> "StepResult":
+    def skip(cls, message: str | None = None) -> Self:
+        """The step had nothing to do; continue."""
         return cls(status=StepStatus.SKIP, message=message)
 
     @classmethod
-    def done(cls, message: str | None = None) -> "StepResult":
+    def done(cls, message: str | None = None) -> Self:
+        """The pipeline has its answer; stop."""
         return cls(status=StepStatus.DONE, message=message)
 
     @classmethod
-    def fatal(cls, message: str | None = None, error: BaseException | None = None) -> "StepResult":
+    def fatal(cls, message: str | None = None, error: BaseException | None = None) -> Self:
+        """The media cannot be identified; abort."""
         return cls(status=StepStatus.FATAL, message=message, error=error)
 
 
 @dataclass
 class PipelineResult:
-    media: dict | None
-    cached: dict | None
+    """Final state of a pipeline run: the identified media, or a cache hit that ended the run early."""
+
+    media: MediaData | None
+    cached: MediaData | None
     completed: bool
 
 
 class PipelineExecutionError(RuntimeError):
-    pass
+    """A handler failed or reported a fatal result."""
 
 
 class PipelineContext:
+    """State shared by the handlers of one identification run.
+
+    Args:
+        request: The identification request.
+        cache_repository: Cache used by the lookup steps.
+        logger: Logger for the handlers; defaults to the pipeline logger.
+    """
+
     def __init__(
         self,
         request: MediaIdentificationRequest,
-        cache_repository,
-        logger=None,
-    ):
+        cache_repository: MediaInfoCache,
+        logger: TracedLogger | None = None,
+    ) -> None:
         self.request = request
         self.cache_repository = cache_repository
-        self.logger = logger or get_otel_log_handler("Pipeline")
+        self.logger = logger or _logger
         self.file_path = request.file_path
-        self.media: dict | None = request.seed_media_info()
-        self.cached_result: dict | None = None
+        self.media: MediaData | None = request.seed_media_info()
+        self.cached_result: MediaData | None = None
         self.completed: bool = False
         self.errors: list[BaseException] = []
 
     @property
     def mode(self) -> RequestMode:
+        """The request mode."""
         return self.request.mode
 
     @property
     def media_type(self) -> str | None:
+        """The media type identified so far, if any."""
         if self.media is None:
             return None
-        return self.media.get("media_type")
+        media_type: str | None = self.media.get("media_type")
+        return media_type
 
     @property
     def has_media_type(self) -> bool:
+        """True once the media type is known to be ``movie`` or ``tv``."""
         return is_media_type_valid(self.media_type) if self.media_type else False
 
     @_logger.trace("PipelineContext.update_media")
-    def update_media(self, new_media: dict | None) -> None:
+    def update_media(self, new_media: MediaData | None) -> None:
+        """Merge new values into the media identified so far (see ``merge_media_info``)."""
         if new_media is None:
             return
         self.media = merge_media_info(self.media, new_media)
 
-    def mark_cached_result(self, cached: dict) -> None:
+    def mark_cached_result(self, cached: MediaData) -> None:
+        """Store a cache hit and mark the run complete."""
         self.cached_result = cached
         self.completed = True
 
     def record_error(self, error: BaseException) -> None:
+        """Keep an error raised or reported by a handler."""
         self.errors.append(error)
 
     def finalize(self) -> PipelineResult:
+        """Return the run's result."""
         return PipelineResult(media=self.media, cached=self.cached_result, completed=self.completed)
 
 
 class PipelineHandler:
+    """One identification step. Subclasses decide in :meth:`handles` whether they apply, then :meth:`invoke`."""
+
     name: str = "pipeline_handler"
 
     def handles(self, context: PipelineContext) -> bool:
+        """Tell whether the step applies to the current context."""
         return True
 
     def invoke(self, context: PipelineContext) -> StepResult:  # pragma: no cover - interface
+        """Run the step."""
         raise NotImplementedError
 
 
 class PipelineController:
-    def __init__(self, handlers: Sequence[PipelineHandler], logger=None):
+    """Runs handlers in order until one finishes the run or aborts it.
+
+    Args:
+        handlers: The steps, in order.
+        logger: Logger for handler failures; defaults to the pipeline logger.
+    """
+
+    def __init__(self, handlers: Sequence[PipelineHandler], logger: TracedLogger | None = None) -> None:
         self.handlers = handlers
         self.logger = logger or _logger
 
     @_logger.trace("PipelineController.run")
     def run(self, context: PipelineContext) -> PipelineResult:
+        """Run the pipeline.
+
+        Returns:
+            The result once a handler reports DONE or every handler ran.
+
+        Raises:
+            PipelineExecutionError: If a handler raises or reports FATAL.
+        """
         span = trace.get_current_span()
         if span.is_recording():
             span.set_attribute("pipeline.handler_count", len(self.handlers))
@@ -126,15 +176,12 @@ class PipelineController:
             handler_name = getattr(handler, "name", handler.__class__.__name__)
             try:
                 result = handler.invoke(context)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 context.record_error(exc)
                 self.logger.error(f"[{handler_name}] raised unhandled error: {exc}")
                 raise PipelineExecutionError(f"Handler '{handler_name}' execution failed: {exc}") from exc
 
-            if result.status == StepStatus.SKIP:
-                continue
-
-            if result.status == StepStatus.SUCCESS:
+            if result.status in (StepStatus.SKIP, StepStatus.SUCCESS):
                 continue
 
             if result.status == StepStatus.DONE:

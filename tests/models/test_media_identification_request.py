@@ -3,19 +3,19 @@ import pytest
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 
 
-def test_from_filename_requires_value():
+def test_from_filename_requires_value() -> None:
     with pytest.raises(ValueError):
         MediaIdentificationRequest.from_filename("")
 
 
-def test_from_filename_mode():
+def test_from_filename_mode() -> None:
     request = MediaIdentificationRequest.from_filename("Some.Show.S01E01.mkv")
     assert request.mode == RequestMode.FILENAME
     assert request.file_path == "Some.Show.S01E01.mkv"
     assert request.has_file_path is True
 
 
-def test_metadata_requires_tv_episode():
+def test_metadata_requires_tv_episode() -> None:
     with pytest.raises(ValueError):
         MediaIdentificationRequest.from_metadata(
             media_type="tv",
@@ -26,7 +26,7 @@ def test_metadata_requires_tv_episode():
         )
 
 
-def test_metadata_normalizes_media_type():
+def test_metadata_normalizes_media_type() -> None:
     request = MediaIdentificationRequest.from_metadata(
         media_type="TV Show",
         title="Example Show",

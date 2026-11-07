@@ -1,9 +1,13 @@
+"""guessit-based identification, with path-segment filtering and scoring to pick the most informative segment."""
+
 import re
+from typing import Any
 
 from guessit import guessit
+from guessit.api import GuessitException
 
 from src.media_identifiers.helpers import apply_basic_media_attributes
-from src.models.media_info import MediaInfoBuilder
+from src.models.media_info import MediaData, MediaInfoBuilder
 from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("MediaIdentifier")
@@ -179,11 +183,20 @@ _TRAILING_YEAR_PATTERN = re.compile(
 
 
 @_logger.trace("identify_media_with_guess_it")
-def identify_media_with_guess_it(file_path: str) -> dict | None:
-    try:
-        _logger.debug(f"Identifying media file: {file_path}")
+def identify_media_with_guess_it(file_path: str) -> MediaData | None:
+    """Run guessit over the path's candidate segments and keep the best-scoring parse.
 
-        best_metadata: dict | None = None
+    Args:
+        file_path: File name or path.
+
+    Returns:
+        The media record from the best parse, or None when no segment yields a meaningful title or guessit fails
+        (the failure is logged; identification then falls back to OpenAI).
+    """
+    try:
+        _logger.debug(f"Identifying media file: {file_path!r}")
+
+        best_metadata: dict[str, Any] | None = None
         best_score = float("-inf")
 
         for index, candidate in enumerate(_generate_guessit_inputs(file_path)):
@@ -205,12 +218,12 @@ def identify_media_with_guess_it(file_path: str) -> dict | None:
             return None
 
         return _create_record_from_guessit_data(best_metadata)
-    except Exception as exc:  # noqa: BLE001
-        _logger.error(f"Error identifying media file {file_path}: {exc}")
+    except GuessitException:
+        _logger.warning(f"guessit failed to parse {file_path!r}", exc_info=True)
         return None
 
 
-def _create_record_from_guessit_data(guess_it_data):
+def _create_record_from_guessit_data(guess_it_data: dict[str, Any]) -> MediaData:
     title = guess_it_data.get("title")
     builder = apply_basic_media_attributes(
         MediaInfoBuilder(),
@@ -336,6 +349,8 @@ def _build_fallback_input(parts: list[str]) -> str:
     for part in parts:
         normalized_part = _normalize_segment(part)
         if not normalized_part:
+            continue
+        if normalized_part.lower() in _PATH_SEGMENT_FILTER:
             continue
         if _segment_is_visual_asset(normalized_part):
             continue
@@ -507,7 +522,7 @@ def _strip_trailing_year(title: str) -> tuple[str, int | None]:
     return cleaned_title, year
 
 
-def _coerce_int(value) -> int | None:  # noqa: ANN001
+def _coerce_int(value: object) -> int | None:
     if isinstance(value, int):
         return value
 

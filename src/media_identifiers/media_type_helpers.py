@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Normalization of the many spellings of "movie" and "TV" that guessit, TMDB, OpenAI and callers produce."""
 
 from src.media_identifiers.constants import MOVIE, TV, VALID_MEDIA_TYPES
 from src.utils import get_otel_log_handler
@@ -22,6 +22,14 @@ _MEDIA_TYPE_ALIASES = {
 
 @_logger.trace("normalize_media_type")
 def normalize_media_type(value: str | None) -> str | None:
+    """Map a media type spelling to ``movie`` or ``tv``.
+
+    Args:
+        value: Any spelling, e.g. ``"Episode"``, ``"tv-show"``, ``"Film"``.
+
+    Returns:
+        ``movie``, ``tv``, or None when the value is not recognized.
+    """
     if value is None:
         return None
 
@@ -41,12 +49,15 @@ def normalize_media_type(value: str | None) -> str | None:
 
 
 def is_movie(media_type: str | None) -> bool:
+    """True when ``media_type`` normalizes to ``movie``."""
     return normalize_media_type(media_type) == MOVIE
 
 
 def is_tv(media_type: str | None) -> bool:
+    """True when ``media_type`` normalizes to ``tv``."""
     return normalize_media_type(media_type) == TV
 
 
 def is_media_type_valid(media_type: str | None) -> bool:
+    """True when ``media_type`` normalizes to ``movie`` or ``tv``."""
     return normalize_media_type(media_type) in VALID_MEDIA_TYPES

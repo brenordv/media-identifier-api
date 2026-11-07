@@ -1,3 +1,5 @@
+"""Converts canonical Roman numerals in text to Arabic digits."""
+
 import re
 from collections.abc import Iterable
 

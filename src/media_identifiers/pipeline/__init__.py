@@ -1,3 +1,5 @@
+"""The identification pipeline: handlers run in order over a shared context."""
+
 from .base import (
     PipelineContext,
     PipelineController,

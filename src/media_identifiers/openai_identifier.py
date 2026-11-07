@@ -1,7 +1,12 @@
+"""OpenAI-backed identification: each AI function's source is sent as the prompt and the model "executes" it."""
+
 import inspect
 import os
+from collections.abc import Callable
+from types import ModuleType
 
 from openai import OpenAI, OpenAIError, RateLimitError
+from openai.types.responses import ResponseUsage
 from opentelemetry import trace
 
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
@@ -12,39 +17,48 @@ from src.media_identifiers.media_type_helpers import (
     is_media_type_valid,
     is_movie,
 )
-from src.models.media_info import MediaInfoBuilder
-from src.repositories.repository_factory import get_repository
-from src.utils import get_otel_log_handler
+from src.models.media_info import MediaData, MediaInfoBuilder
+from src.repositories.repository_factory import get_openai_logger
+from src.utils import get_otel_log_handler, get_request_id
+
+AiFunction = Callable[[str], str] | ModuleType
+"""An AI function, or a module holding one; its source code is the prompt."""
 
 _open_ai_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 _logger = get_otel_log_handler("MediaIdentifier")
-_openai_request_logger = None
-_open_ai_client = None
+_open_ai_client: OpenAI | None = None
+
+_SYSTEM_INSTRUCTIONS = """You are an AI that implements Python functions as described in code comments.
+Only respond to the user's request by executing the function as described, strictly following the output format specified in the comments.
+This is very important: you are forbidden from adding explanations, rephrasing, adding context, adding code blocks, or adding any extra text—output only the function result, as defined.
+Think step by step and double-check your answer before responding, especially when the input is ambiguous or tricky.
+You are forbidden from guessing, inferring, or deducing information that is not explicitly present in the user input or function comments."""  # noqa: E501, W291 - prompt text sent verbatim
 
 
 @_logger.trace("identify_media_with_open_ai_multi")
-def identify_media_with_open_ai_multi(file_path: str, media_type: str | None) -> dict | None:
+def identify_media_with_open_ai_multi(file_path: str, media_type: str | None) -> MediaData | None:
+    """Identify media type (unless given), title, and season/episode for TV, using OpenAI only.
+
+    Returns:
+        A record built from the answers, or None when the media type cannot be determined.
+    """
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes(
-            {
-                "media.file_path": file_path,
-                "media.type": media_type or "unknown",
-            }
-        )
+        span.set_attributes({"media.file_path": file_path, "media.type": media_type or "unknown"})
 
     if media_type is None:
         media_type = identify_media_type_with_open_ai(file_path)
         if not media_type:
-            _logger.warning(f"Could not identify media type for file: {file_path}")
+            _logger.warning(f"Could not identify media type for file: {file_path!r}")
             return None
         if not is_media_type_valid(media_type):
-            _logger.warning(f"Unknown media type: {media_type} for file: {file_path}")
+            _logger.warning(f"Unknown media type: {media_type!r} for file: {file_path!r}")
             return None
 
+    season: int | None = None
+    episode: int | None = None
     if is_movie(media_type):
         title = identify_movie_title_with_open_ai(file_path)
-        season, episode = None, None
     else:
         title = identify_series_title_with_open_ai(file_path)
         season, episode = parse_season_episode_string(
@@ -67,6 +81,11 @@ def identify_media_with_open_ai_multi(file_path: str, media_type: str | None) ->
 
 @_logger.trace("identify_media_type_with_open_ai")
 def identify_media_type_with_open_ai(file_path: str) -> str | None:
+    """Ask whether the file is a movie or a TV episode.
+
+    Returns:
+        The model's answer (``movie``, ``tv`` or ``unknown``), or None when OpenAI could not be asked.
+    """
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("media.file_path", file_path)
@@ -75,6 +94,11 @@ def identify_media_type_with_open_ai(file_path: str) -> str | None:
 
 @_logger.trace("identify_movie_title_with_open_ai")
 def identify_movie_title_with_open_ai(file_path: str) -> str | None:
+    """Ask for the movie title in the file name.
+
+    Returns:
+        The model's answer, or None when OpenAI could not be asked.
+    """
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("media.file_path", file_path)
@@ -83,6 +107,11 @@ def identify_movie_title_with_open_ai(file_path: str) -> str | None:
 
 @_logger.trace("identify_series_title_with_open_ai")
 def identify_series_title_with_open_ai(file_path: str) -> str | None:
+    """Ask for the series title in the file name.
+
+    Returns:
+        The model's answer, or None when OpenAI could not be asked.
+    """
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("media.file_path", file_path)
@@ -91,6 +120,11 @@ def identify_series_title_with_open_ai(file_path: str) -> str | None:
 
 @_logger.trace("identify_series_season_episode_with_open_ai")
 def identify_series_season_episode_with_open_ai(file_path: str) -> str | None:
+    """Ask for the season and episode, as ``"season:X, episode:Y"``.
+
+    Returns:
+        The model's answer, or None when OpenAI could not be asked.
+    """
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("media.file_path", file_path)
@@ -98,15 +132,11 @@ def identify_series_season_episode_with_open_ai(file_path: str) -> str | None:
 
 
 @_logger.trace("_send_task_to_ai")
-def _send_task_to_ai(file_path: str, ai_function: callable) -> str | None:
-    try:
-        return _ask_open_ai(ai_input=_prepare_open_ai_input(file_path, ai_function))
-    except Exception as e:
-        _logger.error(f"Error extracting data for file [{file_path}]: {str(e)}")
-        return None
+def _send_task_to_ai(file_path: str, ai_function: AiFunction) -> str | None:
+    return _ask_open_ai(ai_input=_prepare_open_ai_input(file_path, ai_function))
 
 
-def _prepare_open_ai_input(file_path: str, ai_function: callable) -> str:
+def _prepare_open_ai_input(file_path: str, ai_function: AiFunction) -> str:
     return f"""Output only the result as specified in the function comments below.
 Function code:
 ```python
@@ -120,79 +150,62 @@ Input:
 
 @_logger.trace("_ask_open_ai")
 def _ask_open_ai(ai_input: str) -> str | None:
+    """Send one prompt; None means OpenAI could not answer (missing key, rate limit, or API error, each logged)."""
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("ai.model", _open_ai_model)
 
+    client = _get_open_ai_client()
+    if client is None:
+        return None
+
     try:
-        ai_sys_instructions = """You are an AI that implements Python functions as described in code comments.
-Only respond to the user's request by executing the function as described, strictly following the output format specified in the comments. 
-This is very important: you are forbidden from adding explanations, rephrasing, adding context, adding code blocks, or adding any extra text—output only the function result, as defined.
-Think step by step and double-check your answer before responding, especially when the input is ambiguous or tricky.
-You are forbidden from guessing, inferring, or deducing information that is not explicitly present in the user input or function comments."""
-
-        client = _get_open_ai_client()
-        if client is None:
-            return None
-
         response = client.responses.create(
-            model=_open_ai_model, instructions=ai_sys_instructions, input=ai_input, temperature=0.1
+            model=_open_ai_model,
+            instructions=_SYSTEM_INSTRUCTIONS,
+            input=ai_input,
+            temperature=0.1,
         )
-
-        usage = _extract_usage_from_response(response.usage)
-
-        if span.is_recording():
-            for key, value in usage.items():
-                span.set_attribute(f"ai.usage.{key}", value)
-
-        logger = _get_openai_request_logger()
-        if logger:
-            logger.log(**usage)
-
-        return response.output_text
     except RateLimitError as e:
-        _logger.error(f"OpenAI rate limit exceeded. You're probably out of credits, bud. Error: {str(e)}")
+        _logger.error(f"OpenAI rate limit exceeded. You're probably out of credits, bud. Error: {e}")
+        return None
+    except OpenAIError as e:
+        _logger.error(f"Error communicating with OpenAI: {e}")
         return None
 
-    except Exception as e:
-        _logger.error(f"Error communicating with OpenAI: {str(e)}")
-        return None
+    usage = _extract_usage_from_response(response.usage)
+
+    if span.is_recording():
+        for key, value in usage.items():
+            span.set_attribute(f"ai.usage.{key}", value)
+
+    _record_token_usage(usage)
+
+    return response.output_text
 
 
-def _extract_usage_from_response(usage):
-    # I'm not sure if the all those properties will be present 100% of the time, so I need to work around it.
-    input_tokens = getattr(usage, "input_tokens", 0)
-    input_tokens_details = getattr(usage, "input_tokens_details", None)
-    cached_tokens = getattr(input_tokens_details, "cached_tokens", 0) if input_tokens_details else 0
-
-    output_tokens = getattr(usage, "output_tokens", None)
-    output_token_details = getattr(usage, "output_token_details", 0)
-    reasoning_tokens = getattr(output_token_details, "reasoning_tokens", 0) if output_token_details else 0
-
-    total_tokens = getattr(usage, "total_tokens", 0)
+def _extract_usage_from_response(usage: ResponseUsage | None) -> dict[str, int]:
+    if usage is None:
+        return {"input_tokens": 0, "cached_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
 
     return {
-        "input_tokens": input_tokens,
-        "cached_tokens": cached_tokens,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": reasoning_tokens,
-        "total_tokens": total_tokens,
+        "input_tokens": usage.input_tokens,
+        "cached_tokens": usage.input_tokens_details.cached_tokens,
+        "output_tokens": usage.output_tokens,
+        "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
+        "total_tokens": usage.total_tokens,
     }
 
 
-def _get_openai_request_logger():
-    global _openai_request_logger
-
-    if _openai_request_logger is None:
-        try:
-            _openai_request_logger = get_repository("openai_logger")
-        except ValueError as exc:
-            _logger.error(f"Unable to initialise OpenAI logger repository: {exc}")
-            return None
-    return _openai_request_logger
+def _record_token_usage(usage: dict[str, int]) -> None:
+    try:
+        get_openai_logger().log(**usage)
+    except RuntimeError:
+        # Best-effort: token accounting must never discard the model's answer.
+        _logger.warning(f"Could not record OpenAI token usage for request {get_request_id()}", exc_info=True)
 
 
-def _get_open_ai_client():
+def _get_open_ai_client() -> OpenAI | None:
     global _open_ai_client
 
     if _open_ai_client is not None:

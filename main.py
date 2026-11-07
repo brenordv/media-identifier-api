@@ -1,42 +1,99 @@
-from pathlib import Path
+"""HTTP API: identify media from a file name or from known metadata, and report on past requests."""
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import traceback
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from functools import cache
+from pathlib import Path
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
+from raccoontools_db import close_pool, create_pool
 
+from src.database.pool import build_pool_config
 from src.media_identifiers.media_identifier import MediaIdentifier
 from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
 from src.media_identifiers.pipeline.base import PipelineExecutionError
-from src.repositories.repository_factory import get_repository
+from src.models.media_info import MediaData
+from src.repositories.media_info_cache import MediaInfoCache
+from src.repositories.repository_factory import ensure_schema, get_cache_repository, get_request_logger
+from src.repositories.request_logger import RequestLogger
 from src.utils import flush_all_otel_loggers, get_otel_log_handler, set_request_id
 
+MAX_INPUT_LENGTH = 1024
+MAX_STATISTICS_REQUESTS = 1000
+FIRST_ACCEPTED_YEAR = 1900
+INTERNAL_ERROR_DETAIL = "Internal error while processing the request."
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Open the database pool and make sure the schema exists; close the pool on shutdown."""
+    create_pool(build_pool_config())
+    try:
+        ensure_schema()
+        yield
+    finally:
+        close_pool()
+
+
 app = FastAPI(
-    title="GuessIt API", description="API for guessing information from filenames using guessit", version="1.0.0"
+    title="GuessIt API",
+    description="API for guessing information from filenames using guessit",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 logger = get_otel_log_handler("API", fastapi_app=app)
-request_logger = get_repository("request_logger")
-cache_repository = get_repository("cache")
-media_info_extender = MediaIdentifier()
+
+
+@cache
+def get_media_identifier() -> MediaIdentifier:
+    """Return the shared media identifier."""
+    return MediaIdentifier(get_cache_repository())
+
+
+RequestLoggerDep = Annotated[RequestLogger, Depends(get_request_logger)]
+CacheRepositoryDep = Annotated[MediaInfoCache, Depends(get_cache_repository)]
+MediaIdentifierDep = Annotated[MediaIdentifier, Depends(get_media_identifier)]
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _fail_request(request_logger: RequestLogger, request_id: str, exc: Exception) -> HTTPException:
+    """Record a failed request and build the generic 500 sent to the client.
+
+    The response and the stored error message carry only a generic message and the exception class; the exception
+    details belong in the log, written before this is called.
+    """
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    request_logger.log_completed(
+        request_id, status_code, error_message=f"{INTERNAL_ERROR_DETAIL} ({type(exc).__name__})"
+    )
+    return HTTPException(status_code=status_code, detail=INTERNAL_ERROR_DETAIL)
 
 
 @logger.trace("_prepare_media_info_response")
-def _prepare_media_info_response(media_data, request_id):
-    if media_data is None or len(media_data) == 0:
+def _prepare_media_info_response(
+    request_logger: RequestLogger, media_data: MediaData | None, request_id: str
+) -> Response:
+    if not media_data:
         status_code = status.HTTP_204_NO_CONTENT
         request_logger.log_completed(request_id, status_code, None)
         return Response(status_code=status_code)
 
     status_code = status.HTTP_200_OK
-    request_logger.log_completed(request_id, status_code, media_data.get("id") if media_data else None)
+    media_id = media_data.get("id")
+    request_logger.log_completed(request_id, status_code, str(media_id) if media_id is not None else None)
 
     serializable_result = {
         k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
@@ -57,90 +114,79 @@ def _sanitize_filename(filename: str) -> str:
 
 
 @logger.trace("_process_guess_filename")
-def _process_guess_filename(it: str, is_retrying: bool = False):
+def _process_guess_filename(identifier: MediaIdentifier, it: str, is_retrying: bool = False) -> MediaData | None:
     try:
         filename = _sanitize_filename(it)
 
         if is_retrying:
-            it_file = Path(filename).name
-            return media_info_extender.get_media_info_by_filename(it_file)
+            return identifier.get_media_info_by_filename(Path(filename).name)
 
-        return media_info_extender.get_media_info_by_filename(filename)
-    except PipelineExecutionError:
+        return identifier.get_media_info_by_filename(filename)
+    except PipelineExecutionError as e:
         if is_retrying:
             raise
-        logger.warning(f"Pipeline failed for full path. Retrying with filename only for: {it}")
-        return _process_guess_filename(it, True)
+        logger.warning(f"Pipeline failed for full path ({e}). Retrying with filename only for: {it!r}")
+        return _process_guess_filename(identifier, it, True)
 
 
 @app.get("/api/guess")
 @logger.trace("/api/guess")
-async def guess_filename(request: Request, it: str = Query(None, description="Filename to analyze")):
+def guess_filename(
+    request: Request,
+    request_logger: RequestLoggerDep,
+    identifier: MediaIdentifierDep,
+    it: Annotated[str | None, Query(description="Filename to analyze", max_length=MAX_INPUT_LENGTH)] = None,
+) -> Response:
+    """Identify the media a file name refers to.
+
+    Returns 200 with the media record, 204 when nothing could be identified, 400 when ``it`` is missing, and 500
+    (generic message) when identification fails.
+    """
+    client_ip = _client_ip(request)
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes(
-            {
-                "http.method": request.method,
-                "http.client_ip": request.client.host,
-                "media.input_filename": it,
-            }
-        )
-    """
-    Analyze a filename using guessit and return the extracted information.
+        span.set_attributes({"http.method": request.method, "http.client_ip": client_ip, "media.input_filename": it})
 
-    Args:
-        request: The FastAPI request object
-        it: The filename to analyze
-
-    Returns:
-        JSON object with the media information
-        
-    Raises:
-        400: If the filename is not provided
-        500: If there's an error during execution
-    """
-    # Check if the filename is provided
     if not it:
-        raise HTTPException(status_code=400, detail="Filename not provided")
-
-    # Get the client's IP address
-    client_ip = request.client.host
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename not provided")
 
     request_id = request_logger.log_start("/api/guess", it, client_ip)
+    set_request_id(request_id)
 
     try:
-        set_request_id(request_id)
+        media_data = _process_guess_filename(identifier, it)
+    except Exception as exc:
+        logger.exception(f"Request {request_id}: identifying {it!r} failed")
+        raise _fail_request(request_logger, request_id, exc) from exc
 
-        media_data = _process_guess_filename(it)
-
-        return _prepare_media_info_response(media_data, request_id)
-    except Exception as e:
-        # Capture the error and return a 500 response
-        error_detail = f"Error processing filename: {str(e)}"
-        traceback.print_exc()  # Print traceback for debugging
-        status_code = 500
-
-        request_logger.log_completed(request_id, status_code, error_message=error_detail)
-
-        raise HTTPException(status_code=status_code, detail=error_detail)
+    return _prepare_media_info_response(request_logger, media_data, request_id)
 
 
 @app.get("/api/media-info")
 @logger.trace("/api/media-info")
-async def get_media_info(
+def get_media_info(
     request: Request,
-    media_type: str = Query(None, description="Type of media (movie, series, episode)"),
-    year: int = Query(None, description="Release year of the media"),
-    title: str = Query(None, description="Title of the media"),
-    season: int = Query(None, description="Season number of the media"),
-    episode: int = Query(None, description="Episode number of the media"),
-):
+    request_logger: RequestLoggerDep,
+    identifier: MediaIdentifierDep,
+    media_type: Annotated[str | None, Query(description="Type of media (movie, series, episode)")] = None,
+    year: Annotated[int | None, Query(description="Release year of the media")] = None,
+    title: Annotated[str | None, Query(description="Title of the media", max_length=MAX_INPUT_LENGTH)] = None,
+    season: Annotated[int | None, Query(description="Season number of the media")] = None,
+    episode: Annotated[int | None, Query(description="Episode number of the media")] = None,
+) -> Response:
+    """Return the media record for known metadata, skipping file name identification.
+
+    ``media_type``, ``year`` and ``title`` are required, plus ``season`` and ``episode`` for TV. Returns 200 with
+    the record, 204 when nothing matched, 400 on missing or invalid parameters, and 500 (generic message) when the
+    lookup fails.
+    """
+    client_ip = _client_ip(request)
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attributes(
             {
                 "http.method": request.method,
-                "http.client_ip": request.client.host,
+                "http.client_ip": client_ip,
                 "media.type": media_type,
                 "media.title": title,
                 "media.year": year,
@@ -150,119 +196,78 @@ async def get_media_info(
             span.set_attribute("media.season", season)
         if episode:
             span.set_attribute("media.episode", episode)
-    """
-    Similar to the `/api/media-info` endpoint and will return the same information but will skip the identification step.
-    This endpoint assumes you know the media you want info about.
 
-    Args:
-        request: The FastAPI request object.
-        media_type: Type of media. (Required one: movie, tv)
-        year: Release year of the media. (Required)
-        title: Title of the media. (Required)
-        season: Season number of the media. (Required if media_type is tv)
-        episode: Episode number of the media. (Required if media_type is tv)
-
-    Returns:
-        JSON object with the media information
-
-    Raises:
-        400: If required information is not provided.
-        500: If there's an error during execution
-    """
-    # Check if required data is provided
     if not media_type or not year or not title:
         raise HTTPException(
-            status_code=400, detail="Required information is missing. You must provide media_type, year, and title."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Required information is missing. You must provide media_type, year, and title.",
         )
 
     normalized_media_type = normalize_media_type(media_type)
 
     if normalized_media_type is None:
-        raise HTTPException(status_code=400, detail="Invalid media_type. Supported types are 'movie' and 'tv'.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid media_type. Supported types are 'movie' and 'tv'."
+        )
 
     if is_tv(normalized_media_type):
         if not season:
-            raise HTTPException(status_code=400, detail="Season number is required for TV shows.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Season number is required for TV shows."
+            )
 
         if not episode:
-            raise HTTPException(status_code=400, detail="Episode number is required for TV shows.")
-
-    if not isinstance(year, int):
-        raise HTTPException(status_code=400, detail="Year must be an integer.")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Episode number is required for TV shows."
+            )
 
     current_year = datetime.now(UTC).year
-    if year < 1900 or year > current_year:
-        raise HTTPException(status_code=400, detail=f"Year must be between 1900 and the current year ({current_year}).")
-
-    # Get the client's IP address
-    client_ip = request.client.host
+    if year < FIRST_ACCEPTED_YEAR or year > current_year:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Year must be between {FIRST_ACCEPTED_YEAR} and the current year ({current_year}).",
+        )
 
     request_id = request_logger.log_start("/api/media-info", request.url.query, client_ip)
+    set_request_id(request_id)
 
     try:
-        set_request_id(request_id)
-
-        media_data = media_info_extender.get_media_info(
+        media_data = identifier.get_media_info(
             media_type=normalized_media_type,
             year=year,
             title=title,
             season=season,
             episode=episode,
         )
+    except Exception as exc:
+        logger.exception(f"Request {request_id}: media info lookup failed")
+        raise _fail_request(request_logger, request_id, exc) from exc
 
-        return _prepare_media_info_response(media_data, request_id)
-    except Exception as e:
-        # Capture the error and return a 500 response
-        error_detail = f"Error getting media info: {str(e)}"
-        traceback.print_exc()  # Print traceback for debugging
-        status_code = 500
-
-        request_logger.log_completed(request_id, status_code, error_message=error_detail)
-
-        raise HTTPException(status_code=status_code, detail=error_detail)
+    return _prepare_media_info_response(request_logger, media_data, request_id)
 
 
 @app.get("/api/media-info/{media_id}")
 @logger.trace("/api/media-info/{media_id}")
-async def get_media_info_by_id(
+def get_media_info_by_id(
     request: Request,
     media_id: UUID,
-):
+    request_logger: RequestLoggerDep,
+    cache_repository: CacheRepositoryDep,
+) -> Response:
+    """Return a cached media record by its id: 200 with the record, 404 when unknown, 500 when the lookup fails."""
+    client_ip = _client_ip(request)
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes(
-            {
-                "http.method": request.method,
-                "http.client_ip": request.client.host,
-                "media.id": str(media_id),
-            }
-        )
-    """
-    Retrieve media information directly from the cache using the media ID.
+        span.set_attributes({"http.method": request.method, "http.client_ip": client_ip, "media.id": str(media_id)})
 
-    Args:
-        request: The FastAPI request object.
-        media_id: Unique identifier of the media in the cache.
-
-    Returns:
-        JSON object with the media information if found.
-
-    Raises:
-        404: If the media is not found in the cache.
-        500: If there's an error during execution.
-    """
-    client_ip = request.client.host
     request_id = request_logger.log_start("/api/media-info/{media_id}", str(media_id), client_ip)
+    set_request_id(request_id)
 
     try:
-        set_request_id(request_id)
-        cached_media = cache_repository.get_cached(str(media_id), None, "id")
+        cached_media = cache_repository.get_cached_by_id(str(media_id))
     except Exception as exc:
-        error_detail = f"Error retrieving media by id: {str(exc)}"
-        traceback.print_exc()
-        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-        request_logger.log_completed(request_id, status_code, error_message=error_detail)
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        logger.exception(f"Request {request_id}: media lookup by id failed")
+        raise _fail_request(request_logger, request_id, exc) from exc
 
     if cached_media is None:
         status_code = status.HTTP_404_NOT_FOUND
@@ -270,52 +275,29 @@ async def get_media_info_by_id(
         request_logger.log_completed(request_id, status_code, error_message=error_detail)
         raise HTTPException(status_code=status_code, detail=error_detail)
 
-    return _prepare_media_info_response(cached_media, request_id)
+    return _prepare_media_info_response(request_logger, cached_media, request_id)
 
 
 @app.get("/api/health")
-# @logger.trace("/api/health")
-async def health_check():
-    """
-    Health check endpoint that verifies guessit is working correctly.
-
-    Tests two specific filenames and checks if guessit correctly identifies them.
-
-    Returns:
-        200 with a "healthy" message if both tests pass
-        400 with a "broken" message if any test fails
-    """
-    try:
-        return JSONResponse(content={"message": "healthy"}, status_code=200)
-    except Exception as e:
-        # If any error occurs, return a broken status
-        error_detail = f"Health check failed: {str(e)}"
-        traceback.print_exc()  # Print traceback for debugging
-        return JSONResponse(content={"message": "broken", "error": error_detail}, status_code=500)
+async def health_check() -> JSONResponse:
+    """Report that the API process is up."""
+    return JSONResponse(content={"message": "healthy"}, status_code=status.HTTP_200_OK)
 
 
-@app.get("/api/statistics")
+@app.get("/api/statistics", response_model=None)
 @logger.trace("/api/statistics")
-async def get_statistics(num_requests: int = Query(100, description="Number of recent requests to return")):
-    """
-    Get statistics about the requests made to the /api/guess endpoint.
-
-    Args:
-        num_requests: Number of recent requests to return. Defaults to 100.
-
-    Returns:
-        JSON object with statistics about the requests:
-        - total: Total number of requests ever made to the API
-        - total_24h: Total number of requests in the past 24 hours
-        - recent_requests: List of the most recent N requests
-    """
+def get_statistics(
+    request_logger: RequestLoggerDep,
+    num_requests: Annotated[
+        int, Query(description="Number of recent requests to return", ge=1, le=MAX_STATISTICS_REQUESTS)
+    ] = 100,
+) -> list[dict[str, Any]]:
+    """Return the most recent requests, newest first, with status, result id, timing and error message."""
     try:
-        stats = request_logger.get_recent_requests(num_requests)
-        return stats
-    except Exception as e:
-        error_detail = f"Error retrieving statistics: {str(e)}"
-        traceback.print_exc()  # Print traceback for debugging
-        raise HTTPException(status_code=500, detail=error_detail)
+        return request_logger.get_recent_requests(num_requests)
+    except Exception as exc:
+        logger.exception("Retrieving statistics failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=INTERNAL_ERROR_DETAIL) from exc
 
 
 if __name__ == "__main__":

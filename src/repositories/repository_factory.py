@@ -1,64 +1,40 @@
-import os
+"""Process-wide repository instances.
 
-from psycopg2.pool import SimpleConnectionPool
+Repositories do no I/O when they are built; they borrow connections from the pool that the application's lifespan
+creates.
+"""
+
+from functools import cache
 
 from src.repositories.media_info_cache import MediaInfoCache
 from src.repositories.openai_logger import OpenAILogger
 from src.repositories.request_logger import RequestLogger
-from src.utils import get_otel_log_handler
-
-_db_pool: SimpleConnectionPool | None = None
-_repos_initialized = set()
-_logger = get_otel_log_handler("RepositoryFactory")
 
 
-def _require_env(name: str) -> str:
-    value = os.environ.get(name)
-    if value is None or value.strip() == "":
-        raise ValueError(f"Environment variable '{name}' must be set to connect to the database.")
-    return value
+@cache
+def get_cache_repository() -> MediaInfoCache:
+    """Return the shared media cache repository."""
+    return MediaInfoCache()
 
 
-@_logger.trace("_get_pool")
-def _get_pool() -> SimpleConnectionPool:
-    global _db_pool
-
-    if _db_pool is not None:
-        return _db_pool
-
-    host = _require_env("POSTGRES_HOST")
-    port = int(_require_env("POSTGRES_PORT"))
-    user = _require_env("POSTGRES_USER")
-    password = _require_env("POSTGRES_PASSWORD")
-    dbname = os.environ.get("POSTGRES_DB", "extended_media_info")
-
-    _db_pool = SimpleConnectionPool(
-        minconn=1,
-        maxconn=10,
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        dbname=dbname,
-    )
-
-    return _db_pool
+@cache
+def get_request_logger() -> RequestLogger:
+    """Return the shared request history repository."""
+    return RequestLogger()
 
 
-@_logger.trace("get_repository")
-def get_repository(repo_name: str):
-    pool = _get_pool()
-    repo_name = repo_name.lower()
-    skip_database_initialization = repo_name in _repos_initialized
-    _repos_initialized.add(repo_name)
+@cache
+def get_openai_logger() -> OpenAILogger:
+    """Return the shared OpenAI token usage repository."""
+    return OpenAILogger()
 
-    if repo_name == "cache":
-        return MediaInfoCache(pool, skip_database_initialization=skip_database_initialization)
 
-    if repo_name == "request_logger":
-        return RequestLogger(pool, skip_database_initialization=skip_database_initialization)
+def ensure_schema() -> None:
+    """Create every table the repositories use, when missing.
 
-    if repo_name == "openai_logger":
-        return OpenAILogger(pool, skip_database_initialization=skip_database_initialization)
-
-    raise ValueError(f"Repository '{repo_name}' is not recognized or not implemented.")
+    Raises:
+        RuntimeError: If the database rejects the DDL.
+    """
+    get_cache_repository().ensure_schema()
+    get_request_logger().ensure_schema()
+    get_openai_logger().ensure_schema()

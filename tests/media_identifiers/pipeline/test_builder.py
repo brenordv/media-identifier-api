@@ -8,7 +8,7 @@ from src.media_identifiers.pipeline.handlers import (
 from src.models.media_identification_request import MediaIdentificationRequest
 
 
-def test_filename_pipeline_starts_with_guessit_and_cache():
+def test_filename_pipeline_starts_with_guessit_and_cache() -> None:
     request = MediaIdentificationRequest.from_filename("Movie.Title.2024.1080p.mkv")
 
     handlers = build_pipeline(request)
@@ -19,7 +19,7 @@ def test_filename_pipeline_starts_with_guessit_and_cache():
     assert any(isinstance(handler, TMDBIdentifySeriesHandler) for handler in handlers)
 
 
-def test_metadata_pipeline_starts_with_cache_lookup():
+def test_metadata_pipeline_starts_with_cache_lookup() -> None:
     request = MediaIdentificationRequest.from_metadata(
         media_type="movie",
         title="Example Movie",

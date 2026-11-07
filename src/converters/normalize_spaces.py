@@ -1,3 +1,5 @@
+"""Collapses runs of whitespace."""
+
 import re
 
 
