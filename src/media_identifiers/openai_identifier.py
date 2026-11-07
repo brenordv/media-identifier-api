@@ -29,7 +29,7 @@ _logger = get_otel_log_handler("MediaIdentifier")
 _open_ai_client: OpenAI | None = None
 
 _SYSTEM_INSTRUCTIONS = """You are an AI that implements Python functions as described in code comments.
-Only respond to the user's request by executing the function as described, strictly following the output format specified in the comments.
+Only respond to the user's request by executing the function as described, strictly following the output format specified in the comments. 
 This is very important: you are forbidden from adding explanations, rephrasing, adding context, adding code blocks, or adding any extra text—output only the function result, as defined.
 Think step by step and double-check your answer before responding, especially when the input is ambiguous or tricky.
 You are forbidden from guessing, inferring, or deducing information that is not explicitly present in the user input or function comments."""  # noqa: E501, W291 - prompt text sent verbatim

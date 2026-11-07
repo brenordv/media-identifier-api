@@ -1,4 +1,4 @@
-"""Builds the normalized search key used to match titles in the cache."""
+"""Builds a normalized search key from a title."""
 
 from src.converters.normalize_spaces import normalize_spaces
 from src.converters.replace_roman_numerals import replace_roman_numerals

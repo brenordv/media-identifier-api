@@ -57,12 +57,13 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`, which works well here; other models work too.
 - `POSTGRES_DB` defaults to `extended_media_info`.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is required: logs and traces are exported to that OTLP/HTTP collector.
-- Keep comments on their own lines: Docker's `--env-file` treats a `#` after a value as part of the value.
+- Keep comments on their own lines and leave values unquoted: Docker's `--env-file` treats a `#` after a value,
+  and any quotes, as part of the value.
 
 ### Local Installation
 
 #### Prerequisites
-- Python 3.12 or higher
+- Python 3.12 or higher (`.python-version` selects 3.14 for development, the version the Docker image runs)
 - [uv](https://docs.astral.sh/uv/)
 - A PostgreSQL database
 
@@ -119,7 +120,7 @@ MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration
 ./build-image.sh
 
 # On Windows (PowerShell):
-docker build -t guessit-api:latest .
+docker build -t media-identifier-api:latest .
 ```
 
 #### Running the Docker Container

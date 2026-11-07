@@ -29,6 +29,7 @@ class StubIdentifier(MediaIdentifier):
         self._result = result
         self._error = error
         self.filenames: list[str] = []
+        self.metadata_lookups: list[tuple[str, int, str, int | None, int | None]] = []
 
     def get_media_info_by_filename(self, file_path: str) -> MediaData | None:
         self.filenames.append(file_path)
@@ -39,6 +40,7 @@ class StubIdentifier(MediaIdentifier):
     def get_media_info(
         self, media_type: str, year: int, title: str, season: int | None, episode: int | None
     ) -> MediaData | None:
+        self.metadata_lookups.append((media_type, year, title, season, episode))
         if self._error is not None:
             raise self._error
         return self._result
@@ -188,12 +190,44 @@ def test_media_info_invalid_parameters_return_400(empty_client: TestClient, para
     assert response.status_code == 400
 
 
-def test_media_info_identified_movie_returns_200(identified_client: TestClient) -> None:
-    response = identified_client.get(
-        "/api/media-info", params={"media_type": "movie", "title": "Possessed", "year": 2000}
-    )
+def test_media_info_identified_movie_returns_200_and_records_the_validated_query(
+    request_logger: RecordingRequestLogger, cache: InMemoryCache
+) -> None:
+    identifier = StubIdentifier(result={"id": "cached-1", "title": "Possessed", "media_type": "movie"})
+    with _client(request_logger, cache, identifier) as client:
+        response = client.get(
+            "/api/media-info", params={"media_type": "Film", "title": "Possessed", "year": 2000, "extra": "x" * 500}
+        )
 
     assert response.status_code == 200
+    assert identifier.metadata_lookups == [("movie", 2000, "Possessed", None, None)]
+    assert request_logger.started[0][1] == "media_type=movie&title=Possessed&year=2000"
+
+
+def test_media_info_tv_special_passes_season_zero_and_episode(
+    request_logger: RecordingRequestLogger, cache: InMemoryCache
+) -> None:
+    identifier = StubIdentifier(result={"id": "cached-2", "title": "Slow Horses", "media_type": "tv"})
+    with _client(request_logger, cache, identifier) as client:
+        response = client.get(
+            "/api/media-info",
+            params={"media_type": "series", "title": "Slow Horses", "year": 2022, "season": 0, "episode": 1},
+        )
+
+    assert response.status_code == 200
+    assert identifier.metadata_lookups == [("tv", 2022, "Slow Horses", 0, 1)]
+
+
+@pytest.mark.parametrize(("season", "episode"), [(-1, 1), (1, 0), (10000, 1), (1, 10000)])
+def test_media_info_out_of_range_season_or_episode_returns_422(
+    empty_client: TestClient, season: int, episode: int
+) -> None:
+    response = empty_client.get(
+        "/api/media-info",
+        params={"media_type": "tv", "title": "Slow Horses", "year": 2022, "season": season, "episode": episode},
+    )
+
+    assert response.status_code == 422
 
 
 def test_media_info_by_unknown_id_returns_404(empty_client: TestClient, request_logger: RecordingRequestLogger) -> None:
@@ -234,6 +268,45 @@ class RetryingIdentifier(StubIdentifier):
         if len(self.filenames) == 1:
             raise PipelineExecutionError("Handler 'tmdb_identify_series' execution failed")
         return {"id": "cached-2", "title": "Slow Horses", "media_type": "tv"}
+
+
+class LegacyRequestHistory(RecordingRequestLogger):
+    def get_recent_requests(self, limit: int = 100) -> list[dict[str, object]]:
+        return [
+            {"id": "1x-row", "result_status": 500, "error_message": f"Error processing filename: {SECRET_IN_ERROR}"},
+            {"id": "2x-row", "result_status": 500, "error_message": "Internal error while processing the request."},
+            {"id": "not-found", "result_status": 404, "error_message": "Media not found"},
+        ]
+
+
+def test_statistics_masks_exception_text_stored_by_earlier_versions(cache: InMemoryCache) -> None:
+    with _client(LegacyRequestHistory(), cache, StubIdentifier()) as client:
+        response = client.get("/api/statistics")
+
+    messages = {entry["id"]: entry["error_message"] for entry in response.json()}
+    assert messages == {
+        "1x-row": "Internal error while processing the request.",
+        "2x-row": "Internal error while processing the request.",
+        "not-found": "Media not found",
+    }
+
+
+class AlwaysFailingPipelineIdentifier(StubIdentifier):
+    def get_media_info_by_filename(self, file_path: str) -> MediaData | None:
+        self.filenames.append(file_path)
+        raise PipelineExecutionError("Handler 'tmdb_identify_series' execution failed")
+
+
+def test_guess_pipeline_failure_on_the_retry_returns_generic_500(
+    request_logger: RecordingRequestLogger, cache: InMemoryCache
+) -> None:
+    identifier = AlwaysFailingPipelineIdentifier()
+    with _client(request_logger, cache, identifier) as client:
+        response = client.get("/api/guess", params={"it": SLOW_HORSES_FILE})
+
+    assert response.status_code == 500
+    assert len(identifier.filenames) == 2
+    assert request_logger.completed[-1]["status_code"] == 500
 
 
 def test_guess_pipeline_failure_retries_with_the_file_name_only(

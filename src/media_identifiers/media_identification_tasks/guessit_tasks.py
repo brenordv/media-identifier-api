@@ -191,7 +191,7 @@ def identify_media_with_guess_it(file_path: str) -> MediaData | None:
 
     Returns:
         The media record from the best parse, or None when no segment yields a meaningful title or guessit fails
-        (the failure is logged; identification then falls back to OpenAI).
+        (the failure is logged).
     """
     try:
         _logger.debug(f"Identifying media file: {file_path!r}")

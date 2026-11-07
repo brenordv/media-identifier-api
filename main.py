@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
@@ -29,6 +30,7 @@ from src.repositories.request_logger import RequestLogger
 from src.utils import flush_all_otel_loggers, get_otel_log_handler, set_request_id
 
 MAX_INPUT_LENGTH = 1024
+MAX_SEASON_OR_EPISODE = 9999
 MAX_STATISTICS_REQUESTS = 1000
 FIRST_ACCEPTED_YEAR = 1900
 INTERNAL_ERROR_DETAIL = "Internal error while processing the request."
@@ -61,14 +63,16 @@ app = FastAPI(
 logger = get_otel_log_handler("API", fastapi_app=app)
 
 
-@cache
-def get_media_identifier() -> MediaIdentifier:
-    """Return the shared media identifier."""
-    return MediaIdentifier(get_cache_repository())
-
-
 RequestLoggerDep = Annotated[RequestLogger, Depends(get_request_logger)]
 CacheRepositoryDep = Annotated[MediaInfoCache, Depends(get_cache_repository)]
+
+
+@cache
+def get_media_identifier(cache_repository: CacheRepositoryDep) -> MediaIdentifier:
+    """Return the media identifier for a cache repository (one instance per repository)."""
+    return MediaIdentifier(cache_repository)
+
+
 MediaIdentifierDep = Annotated[MediaIdentifier, Depends(get_media_identifier)]
 
 
@@ -87,6 +91,21 @@ def _fail_request(request_logger: RequestLogger, request_id: str, exc: Exception
         request_id, status_code, error_message=f"{INTERNAL_ERROR_DETAIL} ({type(exc).__name__})"
     )
     return HTTPException(status_code=status_code, detail=INTERNAL_ERROR_DETAIL)
+
+
+def _public_request_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return a request history entry safe to show any client.
+
+    Server errors recorded with exception text (the stored message does not start with the generic one) get the
+    generic message instead.
+    """
+    result_status = entry.get("result_status")
+    error_message = entry.get("error_message")
+    if result_status is None or result_status < status.HTTP_500_INTERNAL_SERVER_ERROR or not error_message:
+        return entry
+    if error_message.startswith(INTERNAL_ERROR_DETAIL):
+        return entry
+    return {**entry, "error_message": INTERNAL_ERROR_DETAIL}
 
 
 @logger.trace("_prepare_media_info_response")
@@ -178,14 +197,18 @@ def get_media_info(
     media_type: Annotated[str | None, Query(description="Type of media (movie, series, episode)")] = None,
     year: Annotated[int | None, Query(description="Release year of the media")] = None,
     title: Annotated[str | None, Query(description="Title of the media", max_length=MAX_INPUT_LENGTH)] = None,
-    season: Annotated[int | None, Query(description="Season number of the media")] = None,
-    episode: Annotated[int | None, Query(description="Episode number of the media")] = None,
+    season: Annotated[
+        int | None, Query(description="Season number of the media (0 for specials)", ge=0, le=MAX_SEASON_OR_EPISODE)
+    ] = None,
+    episode: Annotated[
+        int | None, Query(description="Episode number of the media", ge=1, le=MAX_SEASON_OR_EPISODE)
+    ] = None,
 ) -> Response:
     """Return the media record for known metadata, skipping file name identification.
 
     ``media_type``, ``year`` and ``title`` are required, plus ``season`` and ``episode`` for TV. Returns 200 with
-    the record, 204 when nothing matched, 400 on missing or invalid parameters, and 500 (generic message) when the
-    lookup fails.
+    the record, 204 when nothing matched, 400 on missing or invalid parameters, 422 on out-of-range numbers, and
+    500 (generic message) when the lookup fails.
     """
     client_ip = _client_ip(request)
     span = trace.get_current_span()
@@ -218,12 +241,12 @@ def get_media_info(
         )
 
     if is_tv(normalized_media_type):
-        if not season:
+        if season is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Season number is required for TV shows."
             )
 
-        if not episode:
+        if episode is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Episode number is required for TV shows."
             )
@@ -235,7 +258,16 @@ def get_media_info(
             detail=f"Year must be between {FIRST_ACCEPTED_YEAR} and the current year ({current_year}).",
         )
 
-    request_id = request_logger.log_start("/api/media-info", request.url.query, client_ip)
+    requested = {
+        "media_type": normalized_media_type,
+        "title": title,
+        "year": year,
+        "season": season,
+        "episode": episode,
+    }
+    request_id = request_logger.log_start(
+        "/api/media-info", urlencode({key: value for key, value in requested.items() if value is not None}), client_ip
+    )
     set_request_id(request_id)
 
     try:
@@ -299,9 +331,12 @@ def get_statistics(
         int, Query(description="Number of recent requests to return", ge=1, le=MAX_STATISTICS_REQUESTS)
     ] = 100,
 ) -> list[dict[str, Any]]:
-    """Return the most recent requests, newest first, with status, result id, timing and error message."""
+    """Return the most recent requests, newest first, with status, result id, timing and error message.
+
+    Server errors only ever show the generic error message.
+    """
     try:
-        return request_logger.get_recent_requests(num_requests)
+        return [_public_request_entry(entry) for entry in request_logger.get_recent_requests(num_requests)]
     except Exception as exc:
         logger.exception("Retrieving statistics failed")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=INTERNAL_ERROR_DETAIL) from exc

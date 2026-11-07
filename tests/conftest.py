@@ -1,6 +1,7 @@
 """Test-session setup: the suite runs without live services unless the integration run is explicitly requested."""
 
 import os
+from collections.abc import Iterator
 
 import pytest
 
@@ -35,3 +36,13 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://127.0.0.1:4318"
     for name in _LIVE_SETTINGS:
         os.environ.pop(name, None)
+
+
+@pytest.fixture(autouse=True)
+def _clear_request_id() -> Iterator[None]:
+    """Keep the request id one test sets from leaking into the next test on the same thread."""
+    yield
+
+    from src.utils import set_request_id
+
+    set_request_id(None)

@@ -1,4 +1,4 @@
-"""Helpers shared by the identification steps: filling a record builder and parsing season/episode answers."""
+"""Media record helpers: filling a record builder and parsing ``"season:X, episode:Y"`` answers."""
 
 from simple_log_factory_ext_otel import TracedLogger
 

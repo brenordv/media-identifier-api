@@ -1,4 +1,4 @@
-"""The media record shape shared by the identification pipeline, the cache and the API responses."""
+"""The media record: its builder, the merge rule for partial records, and TMDB genre names."""
 
 from datetime import datetime
 from typing import Any, Self
