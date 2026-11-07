@@ -1,5 +1,5 @@
-from src.utils import get_otel_log_handler
 from opentelemetry import trace
+
 from src.media_identifiers.media_identification_tasks.guessit_tasks import identify_media_with_guess_it
 from src.media_identifiers.media_identification_tasks.openai_tasks import (
     openai_identify_series_season_and_episode_by_title,
@@ -12,14 +12,14 @@ from src.media_identifiers.media_identification_tasks.tmdb_tasks import (
     tmdb_identify_movie_by_id,
     tmdb_identify_series_by_title_and_id,
 )
-from src.media_identifiers.pipeline.base import PipelineContext, PipelineHandler, StepResult
 from src.media_identifiers.media_type_helpers import (
     is_media_type_valid,
     is_movie,
     is_tv,
 )
+from src.media_identifiers.pipeline.base import PipelineContext, PipelineHandler, StepResult
 from src.models.media_identification_request import RequestMode
-
+from src.utils import get_otel_log_handler
 
 _logger = get_otel_log_handler("PipelineHandlers")
 
@@ -44,11 +44,13 @@ class CacheLookupHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.title": context.media.get("title"),
-                "media.type": context.media.get("media_type"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.title": context.media.get("title"),
+                    "media.type": context.media.get("media_type"),
+                }
+            )
         cached = context.cache_repository.get_cached_by_obj(context.media)
         if cached:
             context.logger.debug(f"[{self.name}] Cache hit; stopping pipeline.")
@@ -75,10 +77,12 @@ class GuessItIdentificationHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.file_path": context.file_path,
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.file_path": context.file_path,
+                }
+            )
         guessit_result = identify_media_with_guess_it(context.file_path)
         if not guessit_result:
             context.logger.debug("[guessit_identification] GuessIt did not return data.")
@@ -107,10 +111,12 @@ class OpenAIBasicIdentificationHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.file_path": context.file_path,
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.file_path": context.file_path,
+                }
+            )
         media_data, success = openai_run_basic_identification_by_filename(
             context.media,
             file_path=context.file_path,
@@ -142,10 +148,12 @@ class OpenAISeriesSeasonEpisodeHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.file_path": context.file_path,
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.file_path": context.file_path,
+                }
+            )
         media_data, success = openai_identify_series_season_and_episode_by_title(
             context.media,
             file_path=context.file_path,
@@ -175,10 +183,12 @@ class TMDBIdentifyMovieHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.title": context.media.get("title"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.title": context.media.get("title"),
+                }
+            )
         media_data, success = tmdb_identify_movie_by_id(context.media)
         if not success or media_data is None:
             message = "[tmdb_identify_movie] Failed to identify movie via TMDB."
@@ -206,10 +216,12 @@ class TMDBMovieExternalIdsHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "tmdb.id": context.media.get("tmdb_id"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "tmdb.id": context.media.get("tmdb_id"),
+                }
+            )
         media_data, success = tmdb_get_movie_external_ids(context.media, success=True)
         if not success or media_data is None:
             context.logger.debug("[tmdb_movie_external_ids] Unable to fetch movie external IDs.")
@@ -236,10 +248,12 @@ class TMDBIdentifySeriesHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "media.title": context.media.get("title"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "media.title": context.media.get("title"),
+                }
+            )
         media_data, success = tmdb_identify_series_by_title_and_id(context.media)
         if not success or media_data is None:
             message = "[tmdb_identify_series] Failed to identify series via TMDB."
@@ -267,10 +281,12 @@ class TMDBSeriesExternalIdsHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "tmdb.id": context.media.get("tmdb_id"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "tmdb.id": context.media.get("tmdb_id"),
+                }
+            )
         media_data, success = tmdb_get_series_external_ids(context.media, success=True)
         if not success or media_data is None:
             context.logger.debug("[tmdb_series_external_ids] Unable to fetch series external IDs.")
@@ -300,12 +316,14 @@ class TMDBEpisodeDetailsHandler(PipelineHandler):
     def invoke(self, context: PipelineContext) -> StepResult:
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "pipeline.handler": self.name,
-                "tmdb.series_id": context.media.get("tmdb_series_id"),
-                "media.season": context.media.get("season"),
-                "media.episode": context.media.get("episode"),
-            })
+            span.set_attributes(
+                {
+                    "pipeline.handler": self.name,
+                    "tmdb.series_id": context.media.get("tmdb_series_id"),
+                    "media.season": context.media.get("season"),
+                    "media.episode": context.media.get("episode"),
+                }
+            )
         media_data, success = tmdb_get_episode_details(context.media, success=True)
         if not success or media_data is None:
             context.logger.debug("[tmdb_episode_details] Unable to fetch episode details.")
@@ -314,4 +332,3 @@ class TMDBEpisodeDetailsHandler(PipelineHandler):
         context.update_media(media_data)
         context.logger.debug("[tmdb_episode_details] Episode details merged.")
         return StepResult.success()
-

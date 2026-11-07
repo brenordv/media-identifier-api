@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 from src.models.media_info import MediaInfoBuilder
 from src.utils import get_otel_log_handler
 
@@ -12,20 +10,17 @@ _logger = get_otel_log_handler("MediaIdentifierHelpers")
 def apply_basic_media_attributes(
     builder: MediaInfoBuilder,
     *,
-    title: Optional[str],
-    media_type: Optional[str],
-    year: Optional[int],
-    season: Optional[int] = None,
-    episode: Optional[int] = None,
-    searchable_reference: Optional[str] = None,
+    title: str | None,
+    media_type: str | None,
+    year: int | None,
+    season: int | None = None,
+    episode: int | None = None,
+    searchable_reference: str | None = None,
 ) -> MediaInfoBuilder:
     if title:
         normalized_title = title.strip()
         if normalized_title:
-            builder = (
-                builder.with_title(normalized_title)
-                .with_original_title(normalized_title)
-            )
+            builder = builder.with_title(normalized_title).with_original_title(normalized_title)
             searchable_reference = searchable_reference or normalized_title
 
     if searchable_reference:
@@ -48,10 +43,10 @@ def apply_basic_media_attributes(
 
 @_logger.trace("parse_season_episode_string")
 def parse_season_episode_string(
-    value: Optional[str],
+    value: str | None,
     *,
     logger=None,
-) -> Tuple[Optional[int], Optional[int]]:
+) -> tuple[int | None, int | None]:
     if value is None:
         return None, None
 
@@ -79,10 +74,9 @@ def parse_season_episode_string(
         return None, None
 
 
-def _extract_number(segment: str, label: str, logger) -> Optional[int]:
+def _extract_number(segment: str, label: str, logger) -> int | None:
     tokens = [part.strip() for part in segment.split(":")]
     if len(tokens) != 2 or not tokens[1].isdigit():
         logger.error(f"Invalid {label} format: {segment}")
         return None
     return int(tokens[1])
-

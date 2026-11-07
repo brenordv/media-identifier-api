@@ -2,6 +2,7 @@ import inspect
 
 OUTPUT: str = ""
 
+
 def extract_season_episode_from_filename(_input_filename: str) -> str:
     # Input: Takes in a filename string that is known to represent a TV show episode.
     # Function: Extracts and returns the season and episode number in the format: "season:X, episode:Y" (e.g., "season:1, episode:2").
@@ -49,5 +50,5 @@ def extract_season_episode_from_filename(_input_filename: str) -> str:
     return OUTPUT
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(inspect.getsource(extract_season_episode_from_filename))

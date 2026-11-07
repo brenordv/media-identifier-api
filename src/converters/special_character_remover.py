@@ -1,5 +1,6 @@
 import re
 
+
 def replace_special_chars(text: str, replacement: str = " ", keep_spaces: bool = True) -> str:
     """
     Replace all special characters in a string with a given replacement character.

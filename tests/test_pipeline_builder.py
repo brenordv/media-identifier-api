@@ -30,5 +30,3 @@ def test_metadata_pipeline_starts_with_cache_lookup():
 
     assert isinstance(handlers[0], CacheLookupHandler)
     assert any(isinstance(handler, TMDBIdentifyMovieHandler) for handler in handlers)
-
-

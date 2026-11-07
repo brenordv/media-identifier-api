@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from src.media_identifiers.constants import MOVIE, TV, VALID_MEDIA_TYPES
 from src.utils import get_otel_log_handler
 
@@ -23,7 +21,7 @@ _MEDIA_TYPE_ALIASES = {
 
 
 @_logger.trace("normalize_media_type")
-def normalize_media_type(value: Optional[str]) -> Optional[str]:
+def normalize_media_type(value: str | None) -> str | None:
     if value is None:
         return None
 
@@ -42,14 +40,13 @@ def normalize_media_type(value: Optional[str]) -> Optional[str]:
     return None
 
 
-def is_movie(media_type: Optional[str]) -> bool:
+def is_movie(media_type: str | None) -> bool:
     return normalize_media_type(media_type) == MOVIE
 
 
-def is_tv(media_type: Optional[str]) -> bool:
+def is_tv(media_type: str | None) -> bool:
     return normalize_media_type(media_type) == TV
 
 
-def is_media_type_valid(media_type: Optional[str]) -> bool:
+def is_media_type_valid(media_type: str | None) -> bool:
     return normalize_media_type(media_type) in VALID_MEDIA_TYPES
-

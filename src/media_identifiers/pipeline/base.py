@@ -1,12 +1,12 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Sequence
+
 from opentelemetry import trace
 
 from src.models.media_identification_request import MediaIdentificationRequest, RequestMode
 from src.models.media_info import is_media_type_valid, merge_media_info
 from src.utils import get_otel_log_handler
-
 
 _logger = get_otel_log_handler("Pipeline")
 
@@ -21,30 +21,30 @@ class StepStatus(str, Enum):
 @dataclass
 class StepResult:
     status: StepStatus
-    message: Optional[str] = None
-    error: Optional[BaseException] = None
+    message: str | None = None
+    error: BaseException | None = None
 
     @classmethod
-    def success(cls, message: Optional[str] = None) -> "StepResult":
+    def success(cls, message: str | None = None) -> "StepResult":
         return cls(status=StepStatus.SUCCESS, message=message)
 
     @classmethod
-    def skip(cls, message: Optional[str] = None) -> "StepResult":
+    def skip(cls, message: str | None = None) -> "StepResult":
         return cls(status=StepStatus.SKIP, message=message)
 
     @classmethod
-    def done(cls, message: Optional[str] = None) -> "StepResult":
+    def done(cls, message: str | None = None) -> "StepResult":
         return cls(status=StepStatus.DONE, message=message)
 
     @classmethod
-    def fatal(cls, message: Optional[str] = None, error: Optional[BaseException] = None) -> "StepResult":
+    def fatal(cls, message: str | None = None, error: BaseException | None = None) -> "StepResult":
         return cls(status=StepStatus.FATAL, message=message, error=error)
 
 
 @dataclass
 class PipelineResult:
-    media: Optional[dict]
-    cached: Optional[dict]
+    media: dict | None
+    cached: dict | None
     completed: bool
 
 
@@ -63,17 +63,17 @@ class PipelineContext:
         self.cache_repository = cache_repository
         self.logger = logger or get_otel_log_handler("Pipeline")
         self.file_path = request.file_path
-        self.media: Optional[dict] = request.seed_media_info()
-        self.cached_result: Optional[dict] = None
+        self.media: dict | None = request.seed_media_info()
+        self.cached_result: dict | None = None
         self.completed: bool = False
-        self.errors: List[BaseException] = []
+        self.errors: list[BaseException] = []
 
     @property
     def mode(self) -> RequestMode:
         return self.request.mode
 
     @property
-    def media_type(self) -> Optional[str]:
+    def media_type(self) -> str | None:
         if self.media is None:
             return None
         return self.media.get("media_type")
@@ -83,7 +83,7 @@ class PipelineContext:
         return is_media_type_valid(self.media_type) if self.media_type else False
 
     @_logger.trace("PipelineContext.update_media")
-    def update_media(self, new_media: Optional[dict]) -> None:
+    def update_media(self, new_media: dict | None) -> None:
         if new_media is None:
             return
         self.media = merge_media_info(self.media, new_media)
@@ -129,9 +129,7 @@ class PipelineController:
             except Exception as exc:  # noqa: BLE001
                 context.record_error(exc)
                 self.logger.error(f"[{handler_name}] raised unhandled error: {exc}")
-                raise PipelineExecutionError(
-                    f"Handler '{handler_name}' execution failed: {exc}"
-                ) from exc
+                raise PipelineExecutionError(f"Handler '{handler_name}' execution failed: {exc}") from exc
 
             if result.status == StepStatus.SKIP:
                 continue
@@ -149,4 +147,3 @@ class PipelineController:
                 raise PipelineExecutionError(result.message or "Pipeline handler failed.") from error
 
         return context.finalize()
-

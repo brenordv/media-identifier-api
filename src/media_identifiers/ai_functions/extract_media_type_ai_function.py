@@ -2,6 +2,7 @@ import inspect
 
 OUTPUT: str = ""
 
+
 def extract_media_type_from_filename(_input_filename: str) -> str:
     # Input: Takes in the filename the user wants to be analyzed.
     # Function: Analyzes the input filename and returns if it is a movie or tv-show.
@@ -127,5 +128,5 @@ def extract_media_type_from_filename(_input_filename: str) -> str:
     return OUTPUT
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(inspect.getsource(extract_media_type_from_filename))

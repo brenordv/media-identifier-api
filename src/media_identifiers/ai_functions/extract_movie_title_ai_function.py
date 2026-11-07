@@ -2,6 +2,7 @@ import inspect
 
 OUTPUT: str = ""
 
+
 def extract_movie_title_ai_function(_input_filename: str) -> str:
     # Input: Takes in a filename string that is known to represent a movie (not a TV Show episode, or any other type of media).
     # Function: Extracts and returns only the title of the movie, cleaned and as close as possible to the original release name, with spaces and proper capitalization.
@@ -65,5 +66,5 @@ def extract_movie_title_ai_function(_input_filename: str) -> str:
     return OUTPUT
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(inspect.getsource(extract_movie_title_ai_function))

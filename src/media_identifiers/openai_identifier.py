@@ -1,8 +1,8 @@
 import inspect
 import os
-from typing import Optional, Union
-from opentelemetry import trace
+
 from openai import OpenAI, OpenAIError, RateLimitError
+from opentelemetry import trace
 
 from src.media_identifiers.ai_functions import extract_movie_title_ai_function, extract_series_title_ai_function
 from src.media_identifiers.ai_functions.extract_media_type_ai_function import extract_media_type_from_filename
@@ -23,13 +23,15 @@ _open_ai_client = None
 
 
 @_logger.trace("identify_media_with_open_ai_multi")
-def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, None]) -> Optional[dict]:
+def identify_media_with_open_ai_multi(file_path: str, media_type: str | None) -> dict | None:
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "media.file_path": file_path,
-            "media.type": media_type or "unknown",
-        })
+        span.set_attributes(
+            {
+                "media.file_path": file_path,
+                "media.type": media_type or "unknown",
+            }
+        )
 
     if media_type is None:
         media_type = identify_media_type_with_open_ai(file_path)
@@ -60,43 +62,45 @@ def identify_media_with_open_ai_multi(file_path: str, media_type: Union[str, Non
         searchable_reference=title,
     )
 
-    return builder \
-        .with_used_openai(True) \
-        .build()
+    return builder.with_used_openai(True).build()
 
 
 @_logger.trace("identify_media_type_with_open_ai")
-def identify_media_type_with_open_ai(file_path: str) -> Optional[str]:
+def identify_media_type_with_open_ai(file_path: str) -> str | None:
     span = trace.get_current_span()
-    if span.is_recording(): span.set_attribute("media.file_path", file_path)
+    if span.is_recording():
+        span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_media_type_from_filename)
 
 
 @_logger.trace("identify_movie_title_with_open_ai")
-def identify_movie_title_with_open_ai(file_path: str) -> Optional[str]:
+def identify_movie_title_with_open_ai(file_path: str) -> str | None:
     span = trace.get_current_span()
-    if span.is_recording(): span.set_attribute("media.file_path", file_path)
+    if span.is_recording():
+        span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_movie_title_ai_function)
 
 
 @_logger.trace("identify_series_title_with_open_ai")
-def identify_series_title_with_open_ai(file_path: str) -> Optional[str]:
+def identify_series_title_with_open_ai(file_path: str) -> str | None:
     span = trace.get_current_span()
-    if span.is_recording(): span.set_attribute("media.file_path", file_path)
+    if span.is_recording():
+        span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_series_title_ai_function)
 
 
 @_logger.trace("identify_series_season_episode_with_open_ai")
-def identify_series_season_episode_with_open_ai(file_path: str) -> Optional[str]:
+def identify_series_season_episode_with_open_ai(file_path: str) -> str | None:
     span = trace.get_current_span()
-    if span.is_recording(): span.set_attribute("media.file_path", file_path)
+    if span.is_recording():
+        span.set_attribute("media.file_path", file_path)
     return _send_task_to_ai(file_path, extract_season_episode_from_filename)
 
 
 @_logger.trace("_send_task_to_ai")
-def _send_task_to_ai(file_path: str, ai_function: callable) -> Optional[str]:
+def _send_task_to_ai(file_path: str, ai_function: callable) -> str | None:
     try:
-        return _ask_open_ai(ai_input = _prepare_open_ai_input(file_path, ai_function))
+        return _ask_open_ai(ai_input=_prepare_open_ai_input(file_path, ai_function))
     except Exception as e:
         _logger.error(f"Error extracting data for file [{file_path}]: {str(e)}")
         return None
@@ -115,7 +119,7 @@ Input:
 
 
 @_logger.trace("_ask_open_ai")
-def _ask_open_ai(ai_input: str) -> Optional[str]:
+def _ask_open_ai(ai_input: str) -> str | None:
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("ai.model", _open_ai_model)
@@ -132,10 +136,8 @@ You are forbidden from guessing, inferring, or deducing information that is not 
             return None
 
         response = client.responses.create(
-            model=_open_ai_model,
-            instructions=ai_sys_instructions,
-            input=ai_input,
-            temperature=0.1)
+            model=_open_ai_model, instructions=ai_sys_instructions, input=ai_input, temperature=0.1
+        )
 
         usage = _extract_usage_from_response(response.usage)
 
@@ -156,24 +158,25 @@ You are forbidden from guessing, inferring, or deducing information that is not 
         _logger.error(f"Error communicating with OpenAI: {str(e)}")
         return None
 
+
 def _extract_usage_from_response(usage):
     # I'm not sure if the all those properties will be present 100% of the time, so I need to work around it.
-    input_tokens = getattr(usage, 'input_tokens', 0)
-    input_tokens_details = getattr(usage, 'input_tokens_details', None)
-    cached_tokens = getattr(input_tokens_details, 'cached_tokens', 0) if input_tokens_details else 0
+    input_tokens = getattr(usage, "input_tokens", 0)
+    input_tokens_details = getattr(usage, "input_tokens_details", None)
+    cached_tokens = getattr(input_tokens_details, "cached_tokens", 0) if input_tokens_details else 0
 
-    output_tokens = getattr(usage, 'output_tokens', None)
-    output_token_details = getattr(usage, 'output_token_details', 0)
-    reasoning_tokens = getattr(output_token_details, 'reasoning_tokens', 0) if output_token_details else 0
+    output_tokens = getattr(usage, "output_tokens", None)
+    output_token_details = getattr(usage, "output_token_details", 0)
+    reasoning_tokens = getattr(output_token_details, "reasoning_tokens", 0) if output_token_details else 0
 
-    total_tokens = getattr(usage, 'total_tokens', 0)
+    total_tokens = getattr(usage, "total_tokens", 0)
 
     return {
-        'input_tokens': input_tokens,
-        'cached_tokens': cached_tokens,
-        'output_tokens': output_tokens,
-        'reasoning_tokens': reasoning_tokens,
-        'total_tokens': total_tokens
+        "input_tokens": input_tokens,
+        "cached_tokens": cached_tokens,
+        "output_tokens": output_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "total_tokens": total_tokens,
     }
 
 

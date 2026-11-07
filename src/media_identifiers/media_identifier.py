@@ -1,11 +1,9 @@
-from typing import Optional
 
 from src.media_identifiers.media_type_helpers import is_media_type_valid, is_movie, is_tv
 from src.media_identifiers.pipeline import PipelineContext, PipelineController, build_pipeline
 from src.models.media_identification_request import MediaIdentificationRequest
 from src.repositories.repository_factory import get_repository
 from src.utils import get_otel_log_handler
-
 
 _logger = get_otel_log_handler("MediaIdentifier")
 
@@ -16,7 +14,7 @@ class MediaIdentifier:
         self._logger = _logger
 
     @_logger.trace("identify")
-    def identify(self, request: MediaIdentificationRequest) -> Optional[dict]:
+    def identify(self, request: MediaIdentificationRequest) -> dict | None:
         try:
             self._logger.debug(f"Starting identification: {request.to_logging_payload()}")
 
@@ -45,7 +43,7 @@ class MediaIdentifier:
             raise
 
     @_logger.trace("get_media_info_by_filename")
-    def get_media_info_by_filename(self, file_path: str) -> Optional[dict]:
+    def get_media_info_by_filename(self, file_path: str) -> dict | None:
         request = MediaIdentificationRequest.from_filename(file_path)
         return self.identify(request)
 
@@ -55,9 +53,9 @@ class MediaIdentifier:
         media_type: str,
         year: int,
         title: str,
-        season: Optional[int],
-        episode: Optional[int],
-    ) -> Optional[dict]:
+        season: int | None,
+        episode: int | None,
+    ) -> dict | None:
         request = MediaIdentificationRequest.from_metadata(
             media_type=media_type,
             year=year,
@@ -68,7 +66,7 @@ class MediaIdentifier:
         return self.identify(request)
 
     @_logger.trace("_persist_media")
-    def _persist_media(self, media: dict) -> Optional[dict]:
+    def _persist_media(self, media: dict) -> dict | None:
         media_type = media.get("media_type")
 
         if is_movie(media_type):

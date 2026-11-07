@@ -54,5 +54,5 @@ def extract_tv_show_title_from_filename(_input_filename: str) -> str:
     return OUTPUT
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print(inspect.getsource(extract_tv_show_title_from_filename))

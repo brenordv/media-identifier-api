@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 
 from psycopg2.pool import SimpleConnectionPool
 
@@ -8,9 +7,10 @@ from src.repositories.openai_logger import OpenAILogger
 from src.repositories.request_logger import RequestLogger
 from src.utils import get_otel_log_handler
 
-_db_pool: Optional[SimpleConnectionPool] = None
+_db_pool: SimpleConnectionPool | None = None
 _repos_initialized = set()
 _logger = get_otel_log_handler("RepositoryFactory")
+
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)

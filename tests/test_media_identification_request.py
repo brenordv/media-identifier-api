@@ -37,5 +37,3 @@ def test_metadata_normalizes_media_type():
 
     assert request.media_type == "tv"
     assert request.seed_media_info()["media_type"] == "tv"
-
-

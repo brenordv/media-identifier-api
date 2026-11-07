@@ -4,18 +4,20 @@ from datetime import datetime
 
 from simple_log_factory_ext_otel import TracedLogger, otel_log_factory
 
-request_id_var = contextvars.ContextVar('request_id')
+request_id_var = contextvars.ContextVar("request_id")
 _all_loggers: dict[int, TracedLogger] = {}
 
 
 def set_request_id(request_id):
     request_id_var.set(request_id)
 
+
 def get_request_id():
     try:
         return request_id_var.get()
     except LookupError:
         return None
+
 
 def is_valid_year(year):
     if year is None:
@@ -24,6 +26,7 @@ def is_valid_year(year):
     first_movie_ever_release = 195
     current_year = datetime.now().year
     return first_movie_ever_release <= year <= current_year
+
 
 def get_otel_log_handler(log_name: str, fastapi_app=None) -> TracedLogger:
     otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")

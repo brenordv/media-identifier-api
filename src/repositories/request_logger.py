@@ -1,10 +1,9 @@
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
 from opentelemetry import trace
+from psycopg2.pool import SimpleConnectionPool
 
 from src.repositories.base_repository import BaseRepository
 from src.utils import get_otel_log_handler
-
 
 _logger = get_otel_log_handler("RequestLogger")
 
@@ -55,13 +54,15 @@ class RequestLogger(BaseRepository):
     def log_start(self, endpoint: str, filename: str, requester_ip: str):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "request_history",
-                "db.operation": "insert",
-                "http.endpoint": endpoint,
-                "media.input_filename": filename,
-                "http.client_ip": requester_ip,
-            })
+            span.set_attributes(
+                {
+                    "db.table": "request_history",
+                    "db.operation": "insert",
+                    "http.endpoint": endpoint,
+                    "media.input_filename": filename,
+                    "http.client_ip": requester_ip,
+                }
+            )
         try:
             self._logger.debug(f"Logging request start for {filename} from {requester_ip}")
             with self._get_connection() as conn:
@@ -86,15 +87,20 @@ class RequestLogger(BaseRepository):
     def log_completed(self, request_id: str, status_code: int, result_media_id: str = None, error_message: str = None):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "request_history",
-                "db.operation": "update",
-                "http.request_id": request_id,
-                "http.status_code": status_code,
-            })
-            if result_media_id: span.set_attribute("media.id", result_media_id)
+            span.set_attributes(
+                {
+                    "db.table": "request_history",
+                    "db.operation": "update",
+                    "http.request_id": request_id,
+                    "http.status_code": status_code,
+                }
+            )
+            if result_media_id:
+                span.set_attribute("media.id", result_media_id)
         try:
-            self._logger.debug(f"Logging request completion for ID {request_id} with status {status_code}, and result media ID {result_media_id}")
+            self._logger.debug(
+                f"Logging request completion for ID {request_id} with status {status_code}, and result media ID {result_media_id}"
+            )
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
                     update_query = """
@@ -130,17 +136,20 @@ class RequestLogger(BaseRepository):
                     results = cursor.fetchall()
 
                     self._logger.debug(f"Fetched {len(results)} recent requests")
-                    return [{
-                        "id": str(row[0]),
-                        "filename": row[1],
-                        "requester_ip": row[2],
-                        "result_status": row[3],
-                        "result_media_id": row[4],
-                        "received_at": row[5],
-                        "responded_at": row[6],
-                        "elapsed_time": row[7],
-                        "error_message": row[8]
-                    } for row in results]
+                    return [
+                        {
+                            "id": str(row[0]),
+                            "filename": row[1],
+                            "requester_ip": row[2],
+                            "result_status": row[3],
+                            "result_media_id": row[4],
+                            "received_at": row[5],
+                            "responded_at": row[6],
+                            "elapsed_time": row[7],
+                            "error_message": row[8],
+                        }
+                        for row in results
+                    ]
         except psycopg2.Error as e:
             error_message = f"Error fetching recent requests: {str(e)}"
             self._logger.error(error_message)

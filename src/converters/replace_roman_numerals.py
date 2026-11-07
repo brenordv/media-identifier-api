@@ -1,5 +1,5 @@
 import re
-from typing import Iterable, Tuple
+from collections.abc import Iterable
 
 from src.utils import get_otel_log_handler
 
@@ -7,15 +7,29 @@ _logger = get_otel_log_handler("Converters")
 
 # Roman symbol values
 _ROMAN_VALUES = {
-    "I": 1, "V": 5, "X": 10, "L": 50,
-    "C": 100, "D": 500, "M": 1000,
+    "I": 1,
+    "V": 5,
+    "X": 10,
+    "L": 50,
+    "C": 100,
+    "D": 500,
+    "M": 1000,
 }
 
 # Canonical decomposition table for 1..3999
-_CANONICAL_TABLE: Iterable[Tuple[int, str]] = [
-    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-    (100, "C"),  (90, "XC"), (50, "L"),  (40, "XL"),
-    (10, "X"),   (9, "IX"),  (5, "V"),   (4, "IV"),
+_CANONICAL_TABLE: Iterable[tuple[int, str]] = [
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
     (1, "I"),
 ]
 
@@ -119,7 +133,7 @@ if __name__ == "__main__":
         "In roman: XLII; in arabic: ?",
         "Invalid forms like IC should NOT change.",
         "Edge punctuation: (XV), [X], 'IV', \"CM\"",
-        "Different Cases Ii ii II"
+        "Different Cases Ii ii II",
     ]
     for s in examples:
         print(s, "=>", replace_roman_numerals(s, case_insensitive=True))

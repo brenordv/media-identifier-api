@@ -36,4 +36,3 @@ def test_parse_season_episode_string_invalid_value():
     season, episode = parse_season_episode_string("invalid-format")
     assert season is None
     assert episode is None
-

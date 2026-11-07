@@ -8,8 +8,7 @@ _logger = get_otel_log_handler("Converters")
 
 @_logger.trace("create_searchable_reference")
 def create_searchable_reference(text: str):
-    if text is None or text.strip() == '':
+    if text is None or text.strip() == "":
         return text
 
     return normalize_spaces(replace_special_chars(replace_roman_numerals(text, case_insensitive=True))).strip()
-

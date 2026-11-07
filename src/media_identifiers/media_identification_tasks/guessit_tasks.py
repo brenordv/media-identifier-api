@@ -1,5 +1,4 @@
 import re
-from typing import List, Optional, Tuple
 
 from guessit import guessit
 
@@ -180,11 +179,11 @@ _TRAILING_YEAR_PATTERN = re.compile(
 
 
 @_logger.trace("identify_media_with_guess_it")
-def identify_media_with_guess_it(file_path: str) -> Optional[dict]:
+def identify_media_with_guess_it(file_path: str) -> dict | None:
     try:
         _logger.debug(f"Identifying media file: {file_path}")
 
-        best_metadata: Optional[dict] = None
+        best_metadata: dict | None = None
         best_score = float("-inf")
 
         for index, candidate in enumerate(_generate_guessit_inputs(file_path)):
@@ -231,14 +230,14 @@ def _create_record_from_guessit_data(guess_it_data):
     )
 
 
-def _generate_guessit_inputs(file_path: str) -> List[str]:
+def _generate_guessit_inputs(file_path: str) -> list[str]:
     parts = [part for part in re.split(r"[\\/]", file_path) if part]
 
     cleaned_parts = [part for part in parts if part.lower() not in _PATH_SEGMENT_FILTER]
     if not cleaned_parts:
         cleaned_parts = parts
 
-    candidates: List[str] = []
+    candidates: list[str] = []
     seen: set[str] = set()
 
     def build_candidates(skip_visual_assets: bool) -> None:
@@ -297,7 +296,7 @@ def _segment_has_meaningful_tokens(segment: str) -> bool:
     return len(meaningful_tokens) >= 1
 
 
-def _split_basename_and_extension(segment: str) -> Tuple[str, Optional[str]]:
+def _split_basename_and_extension(segment: str) -> tuple[str, str | None]:
     if "." not in segment:
         return segment, None
 
@@ -328,7 +327,7 @@ def _is_meaningful_segment_token(token: str) -> bool:
     return True
 
 
-def _build_fallback_input(parts: List[str]) -> str:
+def _build_fallback_input(parts: list[str]) -> str:
     if not parts:
         return ""
 
@@ -346,7 +345,9 @@ def _build_fallback_input(parts: List[str]) -> str:
             meaningful_parts.append(normalized_part)
             last_meaningful_count = _count_meaningful_tokens(normalized_part)
 
-    candidate_parts = meaningful_parts[-_MAX_FALLBACK_SEGMENTS:] if meaningful_parts else parts[-_MAX_FALLBACK_SEGMENTS:]
+    candidate_parts = (
+        meaningful_parts[-_MAX_FALLBACK_SEGMENTS:] if meaningful_parts else parts[-_MAX_FALLBACK_SEGMENTS:]
+    )
     normalized_parts = [part.replace("_", " ") for part in candidate_parts if part]
     normalized = " ".join(normalized_parts)
     normalized = normalized.replace("-", " ")
@@ -364,7 +365,7 @@ def _segment_is_visual_asset(segment: str) -> bool:
     return any(token.lower() in _VISUAL_ASSET_TOKENS for token in tokens)
 
 
-def _segment_is_weak_file_candidate(segment: str, parts: List[str], reversed_index: int) -> bool:
+def _segment_is_weak_file_candidate(segment: str, parts: list[str], reversed_index: int) -> bool:
     if not _segment_has_media_extension(segment):
         return False
 
@@ -491,7 +492,7 @@ def _token_is_meaningful_title_token(token: str) -> bool:
     return True
 
 
-def _strip_trailing_year(title: str) -> Tuple[str, Optional[int]]:
+def _strip_trailing_year(title: str) -> tuple[str, int | None]:
     stripped = title.strip()
     match = _TRAILING_YEAR_PATTERN.match(stripped)
     if not match:
@@ -506,7 +507,7 @@ def _strip_trailing_year(title: str) -> Tuple[str, Optional[int]]:
     return cleaned_title, year
 
 
-def _coerce_int(value) -> Optional[int]:  # noqa: ANN001
+def _coerce_int(value) -> int | None:  # noqa: ANN001
     if isinstance(value, int):
         return value
 
@@ -526,5 +527,5 @@ def _is_plausible_year(year: int) -> bool:
     return 1888 <= year <= 2100
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     return [token for token in _TOKEN_SPLIT_RE.split(text) if token]

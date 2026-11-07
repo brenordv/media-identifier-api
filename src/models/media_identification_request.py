@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.helpers import apply_basic_media_attributes
@@ -13,7 +13,7 @@ class RequestMode(str, Enum):
     METADATA = "metadata"
 
 
-def _normalize_media_type(media_type: Optional[str]) -> Optional[str]:
+def _normalize_media_type(media_type: str | None) -> str | None:
     if media_type is None:
         return None
 
@@ -24,16 +24,16 @@ def _normalize_media_type(media_type: Optional[str]) -> Optional[str]:
 @dataclass
 class MediaIdentificationRequest:
     mode: RequestMode
-    file_path: Optional[str] = None
-    media_type: Optional[str] = None
-    title: Optional[str] = None
-    year: Optional[int] = None
-    season: Optional[int] = None
-    episode: Optional[int] = None
-    tmdb_id: Optional[int] = None
-    tmdb_series_id: Optional[int] = None
-    imdb_id: Optional[str] = None
-    extra: Dict[str, Any] = field(default_factory=dict)
+    file_path: str | None = None
+    media_type: str | None = None
+    title: str | None = None
+    year: int | None = None
+    season: int | None = None
+    episode: int | None = None
+    tmdb_id: int | None = None
+    tmdb_series_id: int | None = None
+    imdb_id: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.media_type = _normalize_media_type(self.media_type)
@@ -53,12 +53,12 @@ class MediaIdentificationRequest:
         media_type: str,
         title: str,
         year: int,
-        season: Optional[int] = None,
-        episode: Optional[int] = None,
-        tmdb_id: Optional[int] = None,
-        tmdb_series_id: Optional[int] = None,
-        imdb_id: Optional[str] = None,
-        extra: Optional[Dict[str, Any]] = None,
+        season: int | None = None,
+        episode: int | None = None,
+        tmdb_id: int | None = None,
+        tmdb_series_id: int | None = None,
+        imdb_id: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> "MediaIdentificationRequest":
         return cls(
             mode=RequestMode.METADATA,
@@ -85,7 +85,7 @@ class MediaIdentificationRequest:
     def has_file_path(self) -> bool:
         return bool(self.file_path and self.file_path.strip())
 
-    def seed_media_info(self) -> Dict[str, Any]:
+    def seed_media_info(self) -> dict[str, Any]:
         builder = apply_basic_media_attributes(
             MediaInfoBuilder(),
             title=self.title,
@@ -109,7 +109,7 @@ class MediaIdentificationRequest:
 
         return builder.build()
 
-    def to_logging_payload(self) -> Dict[str, Any]:
+    def to_logging_payload(self) -> dict[str, Any]:
         payload = {
             "mode": self.mode.value,
             "media_type": self.media_type,
@@ -147,9 +147,7 @@ class MediaIdentificationRequest:
             if self.season is None or self.episode is None:
                 raise ValueError("season and episode must be provided for TV metadata requests.")
 
-    def derive_searchable_reference(self) -> Optional[str]:
+    def derive_searchable_reference(self) -> str | None:
         if self.title is None:
             return None
         return create_searchable_reference(self.title)
-
-

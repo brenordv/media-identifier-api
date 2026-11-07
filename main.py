@@ -1,32 +1,30 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from datetime import datetime, UTC
+import traceback
+from datetime import UTC, datetime
 from uuid import UUID
 
-import traceback
 from fastapi import FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
 
-from src.media_identifiers.pipeline.base import PipelineExecutionError
-from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
-from src.utils import set_request_id, get_otel_log_handler, flush_all_otel_loggers
 from src.media_identifiers.media_identifier import MediaIdentifier
+from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
+from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.repositories.repository_factory import get_repository
-
+from src.utils import flush_all_otel_loggers, get_otel_log_handler, set_request_id
 
 app = FastAPI(
-    title="GuessIt API",
-    description="API for guessing information from filenames using guessit",
-    version="1.0.0"
+    title="GuessIt API", description="API for guessing information from filenames using guessit", version="1.0.0"
 )
 
 logger = get_otel_log_handler("API", fastapi_app=app)
-request_logger = get_repository('request_logger')
-cache_repository = get_repository('cache')
+request_logger = get_repository("request_logger")
+cache_repository = get_repository("cache")
 media_info_extender = MediaIdentifier()
 
 
@@ -38,7 +36,7 @@ def _prepare_media_info_response(media_data, request_id):
         return Response(status_code=status_code)
 
     status_code = status.HTTP_200_OK
-    request_logger.log_completed(request_id, status_code, media_data.get('id') if media_data else None)
+    request_logger.log_completed(request_id, status_code, media_data.get("id") if media_data else None)
 
     serializable_result = {
         k: str(v) if not isinstance(v, (str, int, float, bool, list, dict, type(None))) else v
@@ -46,6 +44,7 @@ def _prepare_media_info_response(media_data, request_id):
     }
 
     return JSONResponse(content=serializable_result, status_code=status_code)
+
 
 @logger.trace("_sanitize_filename")
 def _sanitize_filename(filename: str) -> str:
@@ -55,6 +54,7 @@ def _sanitize_filename(filename: str) -> str:
         return _filename.replace("halcyon", "")
 
     return _filename
+
 
 @logger.trace("_process_guess_filename")
 def _process_guess_filename(it: str, is_retrying: bool = False):
@@ -66,24 +66,25 @@ def _process_guess_filename(it: str, is_retrying: bool = False):
             return media_info_extender.get_media_info_by_filename(it_file)
 
         return media_info_extender.get_media_info_by_filename(filename)
-    except PipelineExecutionError as e:
+    except PipelineExecutionError:
         if is_retrying:
             raise
         logger.warning(f"Pipeline failed for full path. Retrying with filename only for: {it}")
         return _process_guess_filename(it, True)
 
+
 @app.get("/api/guess")
 @logger.trace("/api/guess")
-async def guess_filename(
-        request: Request,
-        it: str = Query(None, description="Filename to analyze")):
+async def guess_filename(request: Request, it: str = Query(None, description="Filename to analyze")):
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "http.method": request.method,
-            "http.client_ip": request.client.host,
-            "media.input_filename": it,
-        })
+        span.set_attributes(
+            {
+                "http.method": request.method,
+                "http.client_ip": request.client.host,
+                "media.input_filename": it,
+            }
+        )
     """
     Analyze a filename using guessit and return the extracted information.
 
@@ -101,7 +102,7 @@ async def guess_filename(
     # Check if the filename is provided
     if not it:
         raise HTTPException(status_code=400, detail="Filename not provided")
-    
+
     # Get the client's IP address
     client_ip = request.client.host
 
@@ -120,31 +121,35 @@ async def guess_filename(
         status_code = 500
 
         request_logger.log_completed(request_id, status_code, error_message=error_detail)
-        
+
         raise HTTPException(status_code=status_code, detail=error_detail)
 
 
 @app.get("/api/media-info")
 @logger.trace("/api/media-info")
 async def get_media_info(
-        request: Request,
-        media_type: str = Query(None, description="Type of media (movie, series, episode)"),
-        year: int = Query(None, description="Release year of the media"),
-        title: str = Query(None, description="Title of the media"),
-        season: int = Query(None, description="Season number of the media"),
-        episode: int = Query(None, description="Episode number of the media"),
+    request: Request,
+    media_type: str = Query(None, description="Type of media (movie, series, episode)"),
+    year: int = Query(None, description="Release year of the media"),
+    title: str = Query(None, description="Title of the media"),
+    season: int = Query(None, description="Season number of the media"),
+    episode: int = Query(None, description="Episode number of the media"),
 ):
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "http.method": request.method,
-            "http.client_ip": request.client.host,
-            "media.type": media_type,
-            "media.title": title,
-            "media.year": year,
-        })
-        if season: span.set_attribute("media.season", season)
-        if episode: span.set_attribute("media.episode", episode)
+        span.set_attributes(
+            {
+                "http.method": request.method,
+                "http.client_ip": request.client.host,
+                "media.type": media_type,
+                "media.title": title,
+                "media.year": year,
+            }
+        )
+        if season:
+            span.set_attribute("media.season", season)
+        if episode:
+            span.set_attribute("media.episode", episode)
     """
     Similar to the `/api/media-info` endpoint and will return the same information but will skip the identification step.
     This endpoint assumes you know the media you want info about.
@@ -166,7 +171,9 @@ async def get_media_info(
     """
     # Check if required data is provided
     if not media_type or not year or not title:
-        raise HTTPException(status_code=400, detail="Required information is missing. You must provide media_type, year, and title.")
+        raise HTTPException(
+            status_code=400, detail="Required information is missing. You must provide media_type, year, and title."
+        )
 
     normalized_media_type = normalize_media_type(media_type)
 
@@ -218,16 +225,18 @@ async def get_media_info(
 @app.get("/api/media-info/{media_id}")
 @logger.trace("/api/media-info/{media_id}")
 async def get_media_info_by_id(
-        request: Request,
-        media_id: UUID,
+    request: Request,
+    media_id: UUID,
 ):
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "http.method": request.method,
-            "http.client_ip": request.client.host,
-            "media.id": str(media_id),
-        })
+        span.set_attributes(
+            {
+                "http.method": request.method,
+                "http.client_ip": request.client.host,
+                "media.id": str(media_id),
+            }
+        )
     """
     Retrieve media information directly from the cache using the media ID.
 
@@ -265,13 +274,13 @@ async def get_media_info_by_id(
 
 
 @app.get("/api/health")
-#@logger.trace("/api/health")
+# @logger.trace("/api/health")
 async def health_check():
     """
     Health check endpoint that verifies guessit is working correctly.
-    
+
     Tests two specific filenames and checks if guessit correctly identifies them.
-    
+
     Returns:
         200 with a "healthy" message if both tests pass
         400 with a "broken" message if any test fails
@@ -290,10 +299,10 @@ async def health_check():
 async def get_statistics(num_requests: int = Query(100, description="Number of recent requests to return")):
     """
     Get statistics about the requests made to the /api/guess endpoint.
-    
+
     Args:
         num_requests: Number of recent requests to return. Defaults to 100.
-        
+
     Returns:
         JSON object with statistics about the requests:
         - total: Total number of requests ever made to the API
@@ -320,4 +329,5 @@ if __name__ == "__main__":
 
     print("Starting uvicorn server.")
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

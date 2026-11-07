@@ -1,13 +1,12 @@
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
 from opentelemetry import trace
+from psycopg2.pool import SimpleConnectionPool
 
 from src.converters.create_searchable_reference import create_searchable_reference
 from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.repositories.base_repository import BaseRepository
-from src.utils import is_valid_year, get_otel_log_handler
-
+from src.utils import get_otel_log_handler, is_valid_year
 
 _logger = get_otel_log_handler("Cache")
 
@@ -19,20 +18,14 @@ class MediaInfoCache(BaseRepository):
         if not skip_database_initialization:
             self._ensure_table_exists()
 
-        self._required_columns = [
-            'searchable_reference',
-            'tmdb_id',
-            'title',
-            'original_title',
-            'media_type',
-            'year']
+        self._required_columns = ["searchable_reference", "tmdb_id", "title", "original_title", "media_type", "year"]
 
     def _ensure_table_exists(self):
         try:
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
                     self._logger.debug("Enabling uuid-ossp extension")
-                    cursor.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";")
+                    cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
 
                     self._logger.debug("Creating cached_media table if it does not exist")
                     create_table_query = """
@@ -105,7 +98,7 @@ class MediaInfoCache(BaseRepository):
             if key not in target_keys:
                 continue
 
-            if key in ['used_guessit', 'used_tmdb', 'used_openai']:
+            if key in ["used_guessit", "used_tmdb", "used_openai"]:
                 values.append(bool(value))
                 continue
 
@@ -117,10 +110,12 @@ class MediaInfoCache(BaseRepository):
     def get_cached_by_obj(self, obj):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "select",
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "select",
+                }
+            )
         try:
             self._logger.debug(f"Getting cached data by object for [{obj}]")
 
@@ -128,11 +123,11 @@ class MediaInfoCache(BaseRepository):
                 self._logger.debug("No object provided, returning None")
                 return None
 
-            media_type = normalize_media_type(obj.get('media_type'))
-            title = obj.get('title')
+            media_type = normalize_media_type(obj.get("media_type"))
+            title = obj.get("title")
             searchable_reference_from_title = create_searchable_reference(title)
-            searchable_reference = obj.get('searchable_reference')
-            year = obj.get('year')
+            searchable_reference = obj.get("searchable_reference")
+            year = obj.get("year")
 
             if any(x is None for x in [media_type, title]):
                 self._logger.debug("Object does not contain all required fields, returning None")
@@ -145,25 +140,48 @@ class MediaInfoCache(BaseRepository):
                     query_args = ()
 
                     if media_type == TV:
-                        episode_number = obj.get('episode')
-                        season_number = obj.get('season')
+                        episode_number = obj.get("episode")
+                        season_number = obj.get("season")
 
                         if episode_number is None and season_number is None:
-                            self._logger.debug(f"Object does not contain season or episode number, returning None. Object: {obj}")
+                            self._logger.debug(
+                                f"Object does not contain season or episode number, returning None. Object: {obj}"
+                            )
                             return None
 
                         query = f"{base_query} and season = %s and episode = %s"
                         if is_valid_year(year):
                             query = f"{query} and year = %s"
-                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number, year)
+                            query_args = (
+                                title,
+                                searchable_reference_from_title,
+                                searchable_reference,
+                                media_type,
+                                season_number,
+                                episode_number,
+                                year,
+                            )
                             cursor.execute(query, query_args)
                         else:
-                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, season_number, episode_number)
+                            query_args = (
+                                title,
+                                searchable_reference_from_title,
+                                searchable_reference,
+                                media_type,
+                                season_number,
+                                episode_number,
+                            )
                             cursor.execute(query, query_args)
                     elif media_type == MOVIE:
                         if is_valid_year(year):
                             query = f"{base_query} and year = %s"
-                            query_args = (title, searchable_reference_from_title, searchable_reference, media_type, year)
+                            query_args = (
+                                title,
+                                searchable_reference_from_title,
+                                searchable_reference,
+                                media_type,
+                                year,
+                            )
                             cursor.execute(query, query_args)
                         else:
                             query_args = (title, searchable_reference_from_title, searchable_reference, media_type)
@@ -189,12 +207,14 @@ class MediaInfoCache(BaseRepository):
     def get_cached(self, search_term: str, media_type: str, search_prop_name: str = "searchable_reference"):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "select",
-                "db.search_property": search_prop_name,
-                "db.search_term": search_term,
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "select",
+                    "db.search_property": search_prop_name,
+                    "db.search_term": search_term,
+                }
+            )
         try:
             self._logger.debug(f"Getting cached data for {search_prop_name}: {search_term}")
             with self._get_connection() as conn:
@@ -208,7 +228,13 @@ class MediaInfoCache(BaseRepository):
                             self._logger.debug("Media type provided for cache lookup is invalid.")
                             return None
                         query = f"SELECT * FROM cached_media WHERE {search_prop_name} = %s AND media_type = %s;"
-                        cursor.execute(query, (search_term, normalized_media_type,))
+                        cursor.execute(
+                            query,
+                            (
+                                search_term,
+                                normalized_media_type,
+                            ),
+                        )
 
                     result = cursor.fetchone()
                     if result:
@@ -223,11 +249,13 @@ class MediaInfoCache(BaseRepository):
     def get_cached_by_tmdb_id(self, tmdb_id: int):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "select",
-                "tmdb.id": tmdb_id,
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "select",
+                    "tmdb.id": tmdb_id,
+                }
+            )
         try:
             self._logger.debug(f"Getting cached media by TMDb ID: {tmdb_id}")
             with self._get_connection() as conn:
@@ -246,13 +274,15 @@ class MediaInfoCache(BaseRepository):
     def get_cached_tv_episode(self, tmdb_series_id: int, season: int, episode: int):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "select",
-                "tmdb.series_id": tmdb_series_id,
-                "media.season": season,
-                "media.episode": episode,
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "select",
+                    "tmdb.series_id": tmdb_series_id,
+                    "media.season": season,
+                    "media.episode": episode,
+                }
+            )
         try:
             self._logger.debug(
                 f"Getting cached TV episode by Series ID: {tmdb_series_id}, Season: {season}, Episode: {episode}"
@@ -281,10 +311,12 @@ class MediaInfoCache(BaseRepository):
     def cache_data(self, new_record: dict):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "insert",
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "insert",
+                }
+            )
         try:
             self._logger.debug(f"Caching record with title: {new_record.get('title', '[Unknown]')}")
             with self._get_connection() as conn:
@@ -293,12 +325,12 @@ class MediaInfoCache(BaseRepository):
                     if not all(col in new_record for col in self._required_columns):
                         raise ValueError("Missing required fields in the record")
 
-                    keys = [key for key in new_record.keys() if key not in ['id', 'created_at', 'modified_at']]
+                    keys = [key for key in new_record.keys() if key not in ["id", "created_at", "modified_at"]]
                     values = self._prepare_values_for_cache(new_record, keys)
 
                     # Prepare the insert query
-                    columns = ', '.join(keys)
-                    placeholders = ', '.join(['%s'] * len(keys))
+                    columns = ", ".join(keys)
+                    placeholders = ", ".join(["%s"] * len(keys))
                     query = f"INSERT INTO cached_media ({columns}) VALUES ({placeholders}) RETURNING id;"
 
                     cursor.execute(query, tuple(values))
@@ -306,10 +338,7 @@ class MediaInfoCache(BaseRepository):
                     conn.commit()
                     self._logger.debug(f"Record cached with ID: {new_id}")
 
-                    return {
-                        **new_record,
-                        'id': str(new_id)
-                    }
+                    return {**new_record, "id": str(new_id)}
         except psycopg2.Error as e:
             error_message = f"Error caching record: {str(e)}"
             self._logger.error(error_message)
@@ -319,30 +348,32 @@ class MediaInfoCache(BaseRepository):
     def update_cache(self, new_record: dict):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "cached_media",
-                "db.operation": "update",
-                "media.id": new_record.get('id'),
-            })
+            span.set_attributes(
+                {
+                    "db.table": "cached_media",
+                    "db.operation": "update",
+                    "media.id": new_record.get("id"),
+                }
+            )
         try:
             self._logger.debug(f"Updating cache for record with title: {new_record.get('title', '[Unknown]')}")
             with self._get_connection() as conn:
                 with conn.cursor() as cursor:
                     # Ensure the record has an ID to update
-                    if 'id' not in new_record:
+                    if "id" not in new_record:
                         raise ValueError("Record must have an 'id' field to update")
 
                     prepared_new_record = {
                         **new_record,
                     }
 
-                    for forbidden_key in ['id', 'created_at', 'modified_at']:
+                    for forbidden_key in ["id", "created_at", "modified_at"]:
                         prepared_new_record.pop(forbidden_key, None)
 
-                    set_clause = ', '.join([f"{key} = %s" for key in prepared_new_record])
+                    set_clause = ", ".join([f"{key} = %s" for key in prepared_new_record])
                     query = f"UPDATE cached_media SET {set_clause}, modified_at = CURRENT_TIMESTAMP WHERE id = %s;"
 
-                    cursor.execute(query, tuple(prepared_new_record.values()) + (new_record['id'],))
+                    cursor.execute(query, tuple(prepared_new_record.values()) + (new_record["id"],))
                     conn.commit()
                     self._logger.debug("Cache updated successfully")
 

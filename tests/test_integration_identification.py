@@ -73,4 +73,3 @@ async def test_media_info_endpoint_movie_metadata(async_client: httpx.AsyncClien
     )
 
     assert response.status_code in (200, 204)
-

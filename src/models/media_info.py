@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Union, List, Optional
 from uuid import uuid4
 
 from src.converters.create_searchable_reference import create_searchable_reference
@@ -8,33 +7,33 @@ from src.media_identifiers.media_type_helpers import normalize_media_type
 
 class MediaInfoBuilder:
     def __init__(self):
-        self._id: Union[uuid4, None] = None
-        self._searchable_reference: Union[str, None] = None
-        self._tmdb_id: Union[int, None] = None
-        self._tmdb_series_id: Union[int, None] = None
-        self._imdb_id: Union[str, None] = None
-        self._tvdb_id: Union[int, None] = None
-        self._tvrage_id: Union[int, None] = None
-        self._wikidata_id: Union[str, None] = None
-        self._facebook_id: Union[str, None] = None
-        self._instagram_id: Union[str, None] = None
-        self._twitter_id: Union[str, None] = None
-        self._genres: Union[List[str], None] = None
-        self._title: Union[str, None] = None
-        self._original_title: Union[str, None] = None
-        self._overview: Union[str, None] = None
-        self._episode_title: Union[str, None] = None
-        self._season: Union[int, None] = None
-        self._episode: Union[int, None] = None
-        self._original_language: Union[str, None] = None
-        self._media_type: Union[str, None] = None
-        self._year: Union[int, None] = None
-        self._tagline: Union[str, None] = None
-        self._used_guessit: Union[bool, None] = None
-        self._used_tmdb: Union[bool, None] = None
-        self._used_openai: Union[bool, None] = None
-        self._created_at: Union[datetime, None] = None
-        self._modified_at: Union[datetime, None] = None
+        self._id: uuid4 | None = None
+        self._searchable_reference: str | None = None
+        self._tmdb_id: int | None = None
+        self._tmdb_series_id: int | None = None
+        self._imdb_id: str | None = None
+        self._tvdb_id: int | None = None
+        self._tvrage_id: int | None = None
+        self._wikidata_id: str | None = None
+        self._facebook_id: str | None = None
+        self._instagram_id: str | None = None
+        self._twitter_id: str | None = None
+        self._genres: list[str] | None = None
+        self._title: str | None = None
+        self._original_title: str | None = None
+        self._overview: str | None = None
+        self._episode_title: str | None = None
+        self._season: int | None = None
+        self._episode: int | None = None
+        self._original_language: str | None = None
+        self._media_type: str | None = None
+        self._year: int | None = None
+        self._tagline: str | None = None
+        self._used_guessit: bool | None = None
+        self._used_tmdb: bool | None = None
+        self._used_openai: bool | None = None
+        self._created_at: datetime | None = None
+        self._modified_at: datetime | None = None
 
     def reset(self):
         self.__init__()
@@ -45,9 +44,8 @@ class MediaInfoBuilder:
         return self
 
     def with_searchable_reference(self, searchable_reference: str):
-        if searchable_reference is None or searchable_reference.strip() == '':
+        if searchable_reference is None or searchable_reference.strip() == "":
             return self
-
 
         self._searchable_reference = create_searchable_reference(searchable_reference)
         return self
@@ -120,7 +118,7 @@ class MediaInfoBuilder:
             10765: "Sci-Fi & Fantasy",
             10766: "Soap",
             10767: "Talk",
-            10768: "War & Politics"
+            10768: "War & Politics",
         }
 
         parsed_genres = set()
@@ -130,16 +128,16 @@ class MediaInfoBuilder:
 
         for genre in genres:
             if isinstance(genre, dict):
-                if 'name' not in genre:
+                if "name" not in genre:
                     continue
 
-                parsed_genres.add(genre.get('name'))
+                parsed_genres.add(genre.get("name"))
             elif isinstance(genre, int):
                 if genre not in genres_dict:
                     continue
                 parsed_genres.add(genres_dict[genre])
 
-        self._genres =  list(parsed_genres)
+        self._genres = list(parsed_genres)
 
         return self
 
@@ -207,36 +205,37 @@ class MediaInfoBuilder:
 
     def build(self) -> dict:
         return {
-            'id': self._id,
-            'searchable_reference': self._searchable_reference,
-            'tmdb_id': self._tmdb_id,
-            'imdb_id': self._imdb_id,
-            'tmdb_series_id': self._tmdb_series_id,
-            'tvdb_id': self._tvdb_id,
-            'tvrage_id': self._tvrage_id,
-            'wikidata_id': self._wikidata_id,
-            'facebook_id': self._facebook_id,
-            'instagram_id': self._instagram_id,
-            'twitter_id': self._twitter_id,
-            'genres': self._genres,
-            'title': self._title,
-            'original_title': self._original_title,
-            'overview': self._overview,
-            'episode_title': self._episode_title,
-            'season': self._season,
-            'episode': self._episode,
-            'original_language': self._original_language,
-            'media_type': self._media_type,
-            'year': self._year,
-            'tagline': self._tagline,
-            'used_guessit': self._used_guessit,
-            'used_tmdb': self._used_tmdb,
-            'used_openai': self._used_openai,
-            'created_at': self._created_at,
-            'modified_at': self._modified_at
+            "id": self._id,
+            "searchable_reference": self._searchable_reference,
+            "tmdb_id": self._tmdb_id,
+            "imdb_id": self._imdb_id,
+            "tmdb_series_id": self._tmdb_series_id,
+            "tvdb_id": self._tvdb_id,
+            "tvrage_id": self._tvrage_id,
+            "wikidata_id": self._wikidata_id,
+            "facebook_id": self._facebook_id,
+            "instagram_id": self._instagram_id,
+            "twitter_id": self._twitter_id,
+            "genres": self._genres,
+            "title": self._title,
+            "original_title": self._original_title,
+            "overview": self._overview,
+            "episode_title": self._episode_title,
+            "season": self._season,
+            "episode": self._episode,
+            "original_language": self._original_language,
+            "media_type": self._media_type,
+            "year": self._year,
+            "tagline": self._tagline,
+            "used_guessit": self._used_guessit,
+            "used_tmdb": self._used_tmdb,
+            "used_openai": self._used_openai,
+            "created_at": self._created_at,
+            "modified_at": self._modified_at,
         }
 
-def merge_media_info(existing: dict, new: dict) -> Optional[dict]:
+
+def merge_media_info(existing: dict, new: dict) -> dict | None:
     if existing is None and new is None:
         return None
 
@@ -252,12 +251,13 @@ def merge_media_info(existing: dict, new: dict) -> Optional[dict]:
         if value is None:
             continue
 
-        if key in ['used_guessit', 'used_tmdb', 'used_openai'] and key in merged and merged[key] is True:
+        if key in ["used_guessit", "used_tmdb", "used_openai"] and key in merged and merged[key] is True:
             # If we already said we used a service, we won't override it.
             continue
 
         merged[key] = value
     return merged
+
 
 def is_media_type_valid(media_type: str) -> bool:
     normalized = normalize_media_type(media_type)

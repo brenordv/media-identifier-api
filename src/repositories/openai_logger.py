@@ -1,10 +1,9 @@
 import psycopg2
-from psycopg2.pool import SimpleConnectionPool
 from opentelemetry import trace
+from psycopg2.pool import SimpleConnectionPool
 
 from src.repositories.base_repository import BaseRepository
-from src.utils import get_request_id, get_otel_log_handler
-
+from src.utils import get_otel_log_handler, get_request_id
 
 _logger = get_otel_log_handler("OpenAILogger")
 
@@ -50,21 +49,18 @@ class OpenAILogger(BaseRepository):
             raise RuntimeError(error_message) from e
 
     @_logger.trace("log")
-    def log(self,
-            input_tokens: int,
-            cached_tokens: int,
-            output_tokens: int,
-            reasoning_tokens: int,
-            total_tokens: int):
+    def log(self, input_tokens: int, cached_tokens: int, output_tokens: int, reasoning_tokens: int, total_tokens: int):
         span = trace.get_current_span()
         if span.is_recording():
-            span.set_attributes({
-                "db.table": "openai_history",
-                "db.operation": "insert",
-                "ai.usage.input_tokens": input_tokens,
-                "ai.usage.output_tokens": output_tokens,
-                "ai.usage.total_tokens": total_tokens,
-            })
+            span.set_attributes(
+                {
+                    "db.table": "openai_history",
+                    "db.operation": "insert",
+                    "ai.usage.input_tokens": input_tokens,
+                    "ai.usage.output_tokens": output_tokens,
+                    "ai.usage.total_tokens": total_tokens,
+                }
+            )
         try:
             request_id = get_request_id()
 
@@ -78,7 +74,10 @@ class OpenAILogger(BaseRepository):
                     RETURNING id;
                     """
 
-                    cursor.execute(insert_query, (input_tokens, cached_tokens, output_tokens, reasoning_tokens, total_tokens, request_id))
+                    cursor.execute(
+                        insert_query,
+                        (input_tokens, cached_tokens, output_tokens, reasoning_tokens, total_tokens, request_id),
+                    )
                     openai_request_log_id = cursor.fetchone()[0]
                     conn.commit()
 

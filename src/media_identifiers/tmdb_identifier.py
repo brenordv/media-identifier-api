@@ -1,21 +1,22 @@
-from opentelemetry import trace
 import os
 import random
 import time
-from typing import Dict, Any, Optional, Union
+from typing import Any
+
 import requests
+from opentelemetry import trace
 
 from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaInfoBuilder
-from src.utils import is_valid_year, get_otel_log_handler
+from src.utils import get_otel_log_handler, is_valid_year
 
-_tmdb_api_key: Union[str, None] = None
+_tmdb_api_key: str | None = None
 _logger = get_otel_log_handler("MediaIdentifier")
 
 
 @_logger.trace("request_tmdb_movie_details")
-def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+def request_tmdb_movie_details(tmdb_id: int) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("tmdb.id", tmdb_id)
@@ -23,19 +24,17 @@ def request_tmdb_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
-    movie_details = _make_request(f'https://api.themoviedb.org/3/movie/{tmdb_id}')
+    movie_details = _make_request(f"https://api.themoviedb.org/3/movie/{tmdb_id}")
 
     if not movie_details:
         _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
         return None
 
-    return _get_record_builder_for_tmdb_data(movie_details) \
-        .with_media_type(MOVIE) \
-        .build()
+    return _get_record_builder_for_tmdb_data(movie_details).with_media_type(MOVIE).build()
 
 
 @_logger.trace("request_tmdb_series_details")
-def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+def request_tmdb_series_details(tmdb_id: int) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("tmdb.id", tmdb_id)
@@ -43,27 +42,26 @@ def request_tmdb_series_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
 
-    series_details = _make_request(f'https://api.themoviedb.org/3/tv/{tmdb_id}')
+    series_details = _make_request(f"https://api.themoviedb.org/3/tv/{tmdb_id}")
 
     if not series_details:
         _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
         return None
 
-    return _get_record_builder_for_tmdb_data(series_details) \
-        .with_media_type(TV) \
-        .with_tmdb_series_id(tmdb_id) \
-        .build()
+    return _get_record_builder_for_tmdb_data(series_details).with_media_type(TV).with_tmdb_series_id(tmdb_id).build()
 
 
 @_logger.trace("request_tmdb_series_episode_details")
-def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int) -> Optional[Dict[str, Any]]:
+def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "tmdb.id": tmdb_id,
-            "media.season": season,
-            "media.episode": episode,
-        })
+        span.set_attributes(
+            {
+                "tmdb.id": tmdb_id,
+                "media.season": season,
+                "media.episode": episode,
+            }
+        )
 
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -71,34 +69,42 @@ def request_tmdb_series_episode_details(tmdb_id: int, season: int, episode: int)
     if not season or not episode:
         raise ValueError("Season and episode numbers must not be None or empty.")
 
-    episode_details = _make_request(f'https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season}/episode/{episode}')
+    episode_details = _make_request(f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season}/episode/{episode}")
 
     if not episode_details:
         _logger.warning(f"No details found for TMDB ID: {tmdb_id}")
         return None
 
-    return MediaInfoBuilder() \
-        .with_episode_title(episode_details.get('name')) \
-        .with_episode(episode_details.get('episode_number', episode)) \
-        .with_season(episode_details.get('season_number', season)) \
-        .with_media_type(TV) \
-        .with_tmdb_id(episode_details.get('id')) \
-        .with_tmdb_series_id(tmdb_id) \
-        .with_overview(episode_details.get('overview')) \
-        .with_year(_extract_year_from_tmdb_multi_data(episode_details)) \
+    return (
+        MediaInfoBuilder()
+        .with_episode_title(episode_details.get("name"))
+        .with_episode(episode_details.get("episode_number", episode))
+        .with_season(episode_details.get("season_number", season))
+        .with_media_type(TV)
+        .with_tmdb_id(episode_details.get("id"))
+        .with_tmdb_series_id(tmdb_id)
+        .with_overview(episode_details.get("overview"))
+        .with_year(_extract_year_from_tmdb_multi_data(episode_details))
         .build()
+    )
 
 
 @_logger.trace("request_tmdb_external_ids")
-def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Union[int, None] = None, episode_number: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+def request_tmdb_external_ids(
+    tmdb_id: int, media_type: str, season_number: int | None = None, episode_number: int | None = None
+) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "tmdb.id": tmdb_id,
-            "media.type": media_type,
-        })
-        if season_number: span.set_attribute("media.season", season_number)
-        if episode_number: span.set_attribute("media.episode", episode_number)
+        span.set_attributes(
+            {
+                "tmdb.id": tmdb_id,
+                "media.type": media_type,
+            }
+        )
+        if season_number:
+            span.set_attribute("media.season", season_number)
+        if episode_number:
+            span.set_attribute("media.episode", episode_number)
 
     if not tmdb_id:
         raise ValueError("TMDB ID must not be None or empty.")
@@ -109,12 +115,12 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
 
     if normalized_media_type == TV:
         if season_number is not None and episode_number is not None:
-            url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/external_ids'
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/season/{season_number}/episode/{episode_number}/external_ids"
         else:
-            url = f'https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids'
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids"
 
     elif normalized_media_type == MOVIE:
-        url = f'https://api.themoviedb.org/3/movie/{tmdb_id}/external_ids'
+        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/external_ids"
 
     else:
         raise ValueError(f"Media type must be either '{MOVIE}' or '{TV}'.")
@@ -125,27 +131,31 @@ def request_tmdb_external_ids(tmdb_id: int, media_type: str, season_number: Unio
         _logger.warning(f"No external IDs found for TMDB ID: {tmdb_id}")
         return None
 
-    return MediaInfoBuilder() \
-        .with_tmdb_id(tmdb_id) \
-        .with_imdb_id(external_ids.get('imdb_id')) \
-        .with_tvdb_id(external_ids.get('tvdb_id')) \
-        .with_tvrage_id(external_ids.get('tvrage_id')) \
-        .with_wikidata_id(external_ids.get('wikidata_id')) \
-        .with_facebook_id(external_ids.get('facebook_id')) \
-        .with_instagram_id(external_ids.get('instagram_id')) \
-        .with_twitter_id(external_ids.get('twitter_id')) \
+    return (
+        MediaInfoBuilder()
+        .with_tmdb_id(tmdb_id)
+        .with_imdb_id(external_ids.get("imdb_id"))
+        .with_tvdb_id(external_ids.get("tvdb_id"))
+        .with_tvrage_id(external_ids.get("tvrage_id"))
+        .with_wikidata_id(external_ids.get("wikidata_id"))
+        .with_facebook_id(external_ids.get("facebook_id"))
+        .with_instagram_id(external_ids.get("instagram_id"))
+        .with_twitter_id(external_ids.get("twitter_id"))
         .build()
+    )
 
 
 @_logger.trace("identify_media_with_tmdb_movie_search")
-def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb_movie_search(query: str, year: int | None = None) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "media.query": query,
-            "media.year": year,
-            "media.type": MOVIE,
-        })
+        span.set_attributes(
+            {
+                "media.query": query,
+                "media.year": year,
+                "media.type": MOVIE,
+            }
+        )
     result = _identify_media_with_tmdb_by_type(query, MOVIE, year)
     if result is None:
         return None
@@ -153,14 +163,16 @@ def identify_media_with_tmdb_movie_search(query: str, year: Union[int, None] = N
 
 
 @_logger.trace("identify_media_with_tmdb_series_search")
-def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = None) -> Optional[Dict[str, Any]]:
+def identify_media_with_tmdb_series_search(query: str, year: int | None = None) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
-        span.set_attributes({
-            "media.query": query,
-            "media.year": year,
-            "media.type": TV,
-        })
+        span.set_attributes(
+            {
+                "media.query": query,
+                "media.year": year,
+                "media.type": TV,
+            }
+        )
     result = _identify_media_with_tmdb_by_type(query, TV, year)
     if result is None:
         return None
@@ -169,30 +181,28 @@ def identify_media_with_tmdb_series_search(query: str, year: Union[int, None] = 
 
     # When fetching info on a series, the id is actually the id for the series itself, not the episode.
     # We'll get that later.
-    tmdb_id = series_data.get('tmdb_id')
-    series_data['tmdb_series_id'] = tmdb_id
+    tmdb_id = series_data.get("tmdb_id")
+    series_data["tmdb_series_id"] = tmdb_id
 
     return series_data
 
 
 @_logger.trace("_identify_media_with_tmdb_by_type")
-def _identify_media_with_tmdb_by_type(query: str, media_type: str, year: Union[int, None]) -> Union[MediaInfoBuilder, None]:
-    params = {
-        'query': query,
-        'include_adult': True,
-        'page': 1
-    }
+def _identify_media_with_tmdb_by_type(
+    query: str, media_type: str, year: int | None
+) -> MediaInfoBuilder | None:
+    params = {"query": query, "include_adult": True, "page": 1}
 
     if is_valid_year(year):
-        params['year'] = year
+        params["year"] = year
 
-    response_data = _make_request(f'https://api.themoviedb.org/3/search/{media_type}', params)
+    response_data = _make_request(f"https://api.themoviedb.org/3/search/{media_type}", params)
 
-    if not response_data or 'results' not in response_data or not response_data['results']:
+    if not response_data or "results" not in response_data or not response_data["results"]:
         _logger.warning(f"No results found for query: {query}")
         return None
 
-    tmdb_multi_data = response_data['results'][0]
+    tmdb_multi_data = response_data["results"][0]
 
     return _get_record_builder_for_tmdb_data(tmdb_multi_data)
 
@@ -206,7 +216,7 @@ def _get_tmdb_api_key():
 
     _logger.debug("Loading TMDB API key from environment variables.")
 
-    _tmdb_api_key = os.getenv('TMDB_API_KEY')
+    _tmdb_api_key = os.getenv("TMDB_API_KEY")
 
     if not _tmdb_api_key:
         raise ValueError("TMDB API key is not set in the environment variables.")
@@ -215,13 +225,10 @@ def _get_tmdb_api_key():
 
 
 def _prepare_tmdb_headers():
-    return {
-        'Authorization': f'Bearer {_get_tmdb_api_key()}',
-        'Content-Type': 'application/json'
-    }
+    return {"Authorization": f"Bearer {_get_tmdb_api_key()}", "Content-Type": "application/json"}
 
 
-def _prepare_tmdb_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
+def _prepare_tmdb_parameters(params: dict[str, Any]) -> dict[str, Any]:
     """
     Prepare parameters for TMDB API requests.
 
@@ -234,8 +241,8 @@ def _prepare_tmdb_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
     if params is None:
         params = {}
 
-    if 'language' not in params:
-        params['language'] = 'en-US'
+    if "language" not in params:
+        params["language"] = "en-US"
 
     return params
 
@@ -249,7 +256,7 @@ def _get_debounce_time():
 
 
 @_logger.trace("_make_request")
-def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+def _make_request(url: str, params: dict[str, Any] = None) -> dict[str, Any] | None:
     span = trace.get_current_span()
     if span.is_recording():
         span.set_attribute("http.url", url)
@@ -284,7 +291,7 @@ def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str,
         _logger.error(f"TMDB API HTTP error for url: {url}: {e}")
 
     except requests.RequestException as e:
-        status_code = response.status_code if response else 'unknown'
+        status_code = response.status_code if response else "unknown"
         _logger.error(f"TMDB API request failed with status [{status_code}] for url: [{url}]: {e}")
 
     except ValueError as e:
@@ -293,8 +300,8 @@ def _make_request(url: str, params: Dict[str, Any] = None) -> Optional[Dict[str,
     return None
 
 
-def _extract_year_from_tmdb_multi_data(tmdb_multi_data: Dict[str, Any]) -> Optional[int]:
-    for date_key in ['release_date', 'first_air_date', 'air_date']:
+def _extract_year_from_tmdb_multi_data(tmdb_multi_data: dict[str, Any]) -> int | None:
+    for date_key in ["release_date", "first_air_date", "air_date"]:
         if date_key in tmdb_multi_data and tmdb_multi_data[date_key]:
             date_value = tmdb_multi_data[date_key]
             if not date_value:
@@ -304,14 +311,16 @@ def _extract_year_from_tmdb_multi_data(tmdb_multi_data: Dict[str, Any]) -> Optio
     return None
 
 
-def _get_record_builder_for_tmdb_data(tmdb_data: Dict[str, Any]) -> MediaInfoBuilder:
-    return MediaInfoBuilder() \
-        .with_title(tmdb_data.get('title', tmdb_data.get('name'))) \
-        .with_original_title(tmdb_data.get('original_title', tmdb_data.get('original_name'))) \
-        .with_tmdb_id(tmdb_data.get('id')) \
-        .with_overview(tmdb_data.get('overview')) \
-        .with_year(_extract_year_from_tmdb_multi_data(tmdb_data)) \
-        .with_media_type(tmdb_data.get('media_type')) \
-        .with_original_language(tmdb_data.get('original_language')) \
-        .with_genres(tmdb_data.get('genre_ids', tmdb_data.get('genres'))) \
+def _get_record_builder_for_tmdb_data(tmdb_data: dict[str, Any]) -> MediaInfoBuilder:
+    return (
+        MediaInfoBuilder()
+        .with_title(tmdb_data.get("title", tmdb_data.get("name")))
+        .with_original_title(tmdb_data.get("original_title", tmdb_data.get("original_name")))
+        .with_tmdb_id(tmdb_data.get("id"))
+        .with_overview(tmdb_data.get("overview"))
+        .with_year(_extract_year_from_tmdb_multi_data(tmdb_data))
+        .with_media_type(tmdb_data.get("media_type"))
+        .with_original_language(tmdb_data.get("original_language"))
+        .with_genres(tmdb_data.get("genre_ids", tmdb_data.get("genres")))
         .with_used_tmdb(True)
+    )
