@@ -12,6 +12,7 @@ from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 
 import main
 from main import INTERNAL_ERROR_DETAIL, SERVICE_UNAVAILABLE_DETAIL, app, get_media_identifier
+from src import secret_store
 from src.database.migrations import MigrationError
 from src.media_identifiers.errors import UpstreamUnavailableError
 from src.media_identifiers.media_identifier import IdentificationResult, MediaIdentifier
@@ -19,6 +20,7 @@ from src.media_identifiers.pipeline import DecidedBy, IdentificationOutcome
 from src.media_identifiers.pipeline.base import PipelineExecutionError
 from src.models.media_info import MediaData
 from src.repositories.repository_factory import get_cache_repository, get_request_logger
+from src.secret_store import SecretsError
 from tests.fakes import InMemoryCache, RecordingRequestLogger
 
 SLOW_HORSES_FILE = "/watch/Slow.Horses.S06E06.Judgment.Day.1080p.ATVP.WEB-DL.DDP5.1.H.264-NTb.mkv"
@@ -460,9 +462,14 @@ def _record_lifespan(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return events
 
 
+def _settings_failure_logged(caplog: pytest.LogCaptureFixture) -> bool:
+    return any(record.exc_info and "Reading the settings failed" in record.getMessage() for record in caplog.records)
+
+
 def test_lifespan_migrates_then_opens_the_pool_and_closes_it_on_shutdown(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, secret_values: dict[str, str]
 ) -> None:
+    secret_values["MEDIA_IDENTIFIER_TMDB_API_KEY"] = "tmdb-token"
     events = _record_lifespan(monkeypatch)
 
     with caplog.at_level(logging.INFO), TestClient(app):
@@ -470,24 +477,71 @@ def test_lifespan_migrates_then_opens_the_pool_and_closes_it_on_shutdown(
 
     assert events == ["migrate:conninfo", "create_pool", "serving", "close_pool"]
     messages = [record.getMessage() for record in caplog.records]
-    assert any("NIMBLE_URL is not set" in message for message in messages)
-    assert any("OPENAI_API_KEY is not set" in message for message in messages)
+    assert any("MEDIA_IDENTIFIER_NIMBLE_URL is not set in Infisical" in message for message in messages)
+    assert any("MEDIA_IDENTIFIER_OPENAI_API_KEY is not set in Infisical" in message for message in messages)
 
 
-def test_lifespan_invalid_nimble_url_stops_startup_before_migrating(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lifespan_reads_every_setting_at_startup(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = {
+        "MEDIA_IDENTIFIER_NIMBLE_URL": "http://nimble.example:11434",
+        "MEDIA_IDENTIFIER_OPENAI_API_KEY": "sk-test",
+        "MEDIA_IDENTIFIER_OPENAI_ORGANIZATION": "org-media",
+        "MEDIA_IDENTIFIER_TMDB_API_KEY": "tmdb-token",
+        "MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING": "postgresql://media:s3cret@db.example:5433/media_cache",
+    }
+    requested: list[str] = []
+
+    def recording_fetch(name: str) -> str | None:
+        requested.append(name)
+        return settings.get(name)
+
+    monkeypatch.setattr(secret_store, "_default_store", secret_store.SecretStore(recording_fetch, "Infisical at test"))
+    monkeypatch.setattr(main, "apply_migrations", lambda conninfo, logger: None)
+    monkeypatch.setattr(main, "create_pool", lambda config: None)
+    monkeypatch.setattr(main, "close_pool", lambda: None)
+
+    with caplog.at_level(logging.INFO), TestClient(app):
+        pass
+
+    assert sorted(requested) == sorted(settings)
+    assert any("Reading the settings from Infisical at test" in record.getMessage() for record in caplog.records)
+
+
+def test_lifespan_without_tmdb_key_stops_startup_before_migrating(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     events = _record_lifespan(monkeypatch)
-    monkeypatch.setenv("NIMBLE_URL", "ftp://nimble.example")
 
-    with pytest.raises(ValueError, match="NIMBLE_URL"):
+    with caplog.at_level(logging.ERROR), pytest.raises(SecretsError, match="MEDIA_IDENTIFIER_TMDB_API_KEY"):
         with TestClient(app):
             pass
 
     assert events == []
+    assert _settings_failure_logged(caplog)
+
+
+def test_lifespan_invalid_nimble_url_stops_startup_before_migrating(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, secret_values: dict[str, str]
+) -> None:
+    events = _record_lifespan(monkeypatch)
+    secret_values.update(
+        {"MEDIA_IDENTIFIER_NIMBLE_URL": "ftp://nimble.example", "MEDIA_IDENTIFIER_TMDB_API_KEY": "tmdb-token"}
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(ValueError, match="MEDIA_IDENTIFIER_NIMBLE_URL"):
+        with TestClient(app):
+            pass
+
+    assert events == []
+    assert _settings_failure_logged(caplog)
 
 
 def test_lifespan_migration_failure_stops_startup_before_opening_the_pool(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, secret_values: dict[str, str]
 ) -> None:
+    secret_values["MEDIA_IDENTIFIER_TMDB_API_KEY"] = "tmdb-token"
     events: list[str] = []
 
     def failing_migrations(conninfo: str, logger: object) -> None:

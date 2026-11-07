@@ -1,6 +1,5 @@
 """Calls to the TMDB v3 API: search, movie/series/episode details and external ids."""
 
-import os
 import random
 import time
 from typing import Any
@@ -13,6 +12,7 @@ from src.media_identifiers.constants import MOVIE, TV
 from src.media_identifiers.errors import UpstreamUnavailableError
 from src.media_identifiers.media_type_helpers import normalize_media_type
 from src.models.media_info import MediaData, MediaInfoBuilder
+from src.secret_store import get_secret
 from src.utils import get_otel_log_handler, is_valid_year
 
 TMDB_API_BASE_URL = "https://api.themoviedb.org/3"
@@ -20,7 +20,6 @@ REQUEST_TIMEOUT_SECONDS = 10
 RATE_LIMIT_BASE_WAIT_SECONDS = 8
 RATE_LIMIT_JITTER_SECONDS = (1, 3)
 
-_tmdb_api_key: str | None = None
 _logger = get_otel_log_handler("MediaIdentifier")
 
 
@@ -269,25 +268,17 @@ def _identify_media_with_tmdb_by_type(query: str | None, media_type: str, year: 
     return _get_record_builder_for_tmdb_data(response_data["results"][0])
 
 
-def _get_tmdb_api_key() -> str:
-    global _tmdb_api_key
+def get_tmdb_api_key() -> str:
+    """Return TMDB's API read access token from the ``MEDIA_IDENTIFIER_TMDB_API_KEY`` Infisical secret, trimmed.
 
-    if _tmdb_api_key is not None and _tmdb_api_key.strip() != "":
-        _logger.debug("Using cached TMDB API key.")
-        return _tmdb_api_key
-
-    _logger.debug("Loading TMDB API key from environment variables.")
-
-    _tmdb_api_key = os.getenv("TMDB_API_KEY")
-
-    if not _tmdb_api_key:
-        raise ValueError("TMDB API key is not set in the environment variables.")
-
-    return _tmdb_api_key
+    Raises:
+        SecretsError: If the secret is not set, or Infisical cannot be read.
+    """
+    return get_secret("MEDIA_IDENTIFIER_TMDB_API_KEY").strip()
 
 
 def _prepare_tmdb_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {_get_tmdb_api_key()}", "Content-Type": "application/json"}
+    return {"Authorization": f"Bearer {get_tmdb_api_key()}", "Content-Type": "application/json"}
 
 
 def _prepare_tmdb_parameters(params: dict[str, Any] | None) -> dict[str, Any]:
@@ -309,7 +300,7 @@ def _make_request(url: str, params: dict[str, Any] | None = None) -> dict[str, A
         The decoded JSON body, or None when TMDB answers 404 (the resource does not exist).
 
     Raises:
-        ValueError: If the TMDB API key is not configured.
+        SecretsError: If the TMDB API key is not set, or Infisical cannot be read.
         UpstreamUnavailableError: If TMDB times out, cannot be reached, still answers 429 after the retry, answers 5xx,
             or returns a body that is not JSON.
         RuntimeError: If TMDB rejects the request with another 4xx (an invalid key, a malformed request).

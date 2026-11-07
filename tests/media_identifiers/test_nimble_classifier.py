@@ -37,8 +37,8 @@ def _answer(choice: object, confidence: object) -> str:
 
 
 @pytest.fixture
-def nimble(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NIMBLE_URL", "http://nimble.example:11434/")
+def nimble(secret_values: dict[str, str]) -> None:
+    secret_values["MEDIA_IDENTIFIER_NIMBLE_URL"] = "http://nimble.example:11434/"
 
 
 def _use_post(monkeypatch: pytest.MonkeyPatch, outcome: requests.Response | Exception) -> RecordingPost:
@@ -104,8 +104,8 @@ def test_verdict_is_confident_from_the_threshold() -> None:
     assert not NimbleVerdict("movie", nimble_classifier.NIMBLE_MIN_CONFIDENCE - 0.01).is_confident
 
 
-def test_get_nimble_url_strips_the_trailing_slash(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("NIMBLE_URL", " https://nimble.example:11434/ ")
+def test_get_nimble_url_strips_the_trailing_slash(secret_values: dict[str, str]) -> None:
+    secret_values["MEDIA_IDENTIFIER_NIMBLE_URL"] = " https://nimble.example:11434/ "
 
     assert get_nimble_url() == "https://nimble.example:11434"
 
@@ -122,10 +122,10 @@ def test_get_nimble_url_strips_the_trailing_slash(monkeypatch: pytest.MonkeyPatc
         "http://nimble.example:11434#secret",
     ],
 )
-def test_get_nimble_url_invalid_value_raises_without_echoing_it(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    monkeypatch.setenv("NIMBLE_URL", value)
+def test_get_nimble_url_invalid_value_raises_without_echoing_it(secret_values: dict[str, str], value: str) -> None:
+    secret_values["MEDIA_IDENTIFIER_NIMBLE_URL"] = value
 
-    with pytest.raises(ValueError, match="NIMBLE_URL must be") as raised:
+    with pytest.raises(ValueError, match="MEDIA_IDENTIFIER_NIMBLE_URL must be") as raised:
         get_nimble_url()
 
     assert "secret" not in str(raised.value)

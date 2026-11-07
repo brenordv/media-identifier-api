@@ -1,6 +1,5 @@
 """Client for the Nimble classifier, which decides whether a file path names a movie, a TV release, or neither."""
 
-import os
 from dataclasses import dataclass
 from typing import Literal, cast
 from urllib.parse import urlsplit
@@ -8,6 +7,7 @@ from urllib.parse import urlsplit
 import requests
 from opentelemetry import trace
 
+from src.secret_store import get_optional_secret
 from src.utils import get_otel_log_handler
 
 NimbleChoice = Literal["movie", "tv", "other"]
@@ -58,20 +58,24 @@ class NimbleVerdict:
 
 
 def get_nimble_url() -> str | None:
-    """Return the Nimble base URL from ``NIMBLE_URL``, without a trailing slash.
+    """Return the Nimble base URL from the ``MEDIA_IDENTIFIER_NIMBLE_URL`` Infisical secret, without a trailing slash.
 
     Returns:
-        The URL, or None when ``NIMBLE_URL`` is unset or empty (Nimble is then not used).
+        The URL, or None when ``MEDIA_IDENTIFIER_NIMBLE_URL`` is not set (Nimble is then not used).
 
     Raises:
         ValueError: If the value is not an http or https URL with a host, an optional valid port and path, and no
             credentials, query or fragment.
+        SecretsError: If Infisical cannot be read.
     """
-    value = os.environ.get("NIMBLE_URL", "").strip()
+    value = (get_optional_secret("MEDIA_IDENTIFIER_NIMBLE_URL") or "").strip()
     if not value:
         return None
 
-    message = "NIMBLE_URL must be an http or https URL with a host and without credentials, query or fragment."
+    message = (
+        "MEDIA_IDENTIFIER_NIMBLE_URL must be an http or https URL with a host and without credentials, query or "
+        "fragment."
+    )
     parts = urlsplit(value)
     try:
         parts.port
@@ -102,7 +106,8 @@ def classify_media_kind(file_path: str) -> NimbleVerdict | None:
         warning).
 
     Raises:
-        ValueError: If ``NIMBLE_URL`` is set to an invalid value.
+        ValueError: If ``MEDIA_IDENTIFIER_NIMBLE_URL`` is set to an invalid value.
+        SecretsError: If Infisical cannot be read.
     """
     base_url = get_nimble_url()
     if base_url is None:

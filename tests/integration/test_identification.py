@@ -1,7 +1,7 @@
 """Live end-to-end checks against TMDB, OpenAI and the configured Postgres database.
 
-Run with ``MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration``; the database settings come from `.env`.
-These tests write to the database.
+Run with ``MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration``; the settings come from Infisical, with
+the Infisical bootstrap in the environment or `.env`. These tests write to the configured database.
 """
 
 import os
@@ -72,7 +72,7 @@ def test_nimble_answers_the_production_triage_question(file_path: str, choice: s
     from src.media_identifiers.nimble_classifier import classify_media_kind, get_nimble_url
 
     if get_nimble_url() is None:
-        pytest.skip("NIMBLE_URL is not set.")
+        pytest.skip("MEDIA_IDENTIFIER_NIMBLE_URL is not set.")
 
     verdict = classify_media_kind(file_path)
 
@@ -84,7 +84,7 @@ def test_openai_answers_the_production_schema_and_prompt() -> None:
     from src.media_identifiers.openai_identifier import identify_media_with_openai, is_openai_configured
 
     if not is_openai_configured():
-        pytest.skip("OPENAI_API_KEY is not set.")
+        pytest.skip("MEDIA_IDENTIFIER_OPENAI_API_KEY is not set.")
 
     identification = identify_media_with_openai(
         "Pulse.2.Afterlife.2008.1080p.BluRay.x264-GUACAMOLE/gua-pulse2.2008-1080p.mkv",

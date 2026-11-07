@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from src.media_identifiers.errors import UpstreamReason, UpstreamUnavailableError
 from src.repositories.repository_factory import get_openai_logger
+from src.secret_store import get_optional_secret
 from src.utils import get_otel_log_handler, get_request_id, is_valid_year
 
 OPENAI_TIMEOUT_SECONDS = 20
@@ -139,8 +140,23 @@ class OpenAIIdentification:
 
 
 def is_openai_configured() -> bool:
-    """True when ``OPENAI_API_KEY`` is set."""
-    return bool(os.environ.get("OPENAI_API_KEY"))
+    """True when the ``MEDIA_IDENTIFIER_OPENAI_API_KEY`` Infisical secret is set.
+
+    ``MEDIA_IDENTIFIER_OPENAI_ORGANIZATION`` is read along with it.
+
+    Raises:
+        SecretsError: If Infisical cannot be read.
+    """
+    return _read_openai_settings() is not None
+
+
+def _read_openai_settings() -> tuple[str, str | None] | None:
+    """Return the API key and the organization, trimmed, or None when ``MEDIA_IDENTIFIER_OPENAI_API_KEY`` is not set."""
+    api_key = get_optional_secret("MEDIA_IDENTIFIER_OPENAI_API_KEY")
+    if api_key is None:
+        return None
+    organization = get_optional_secret("MEDIA_IDENTIFIER_OPENAI_ORGANIZATION")
+    return api_key.strip(), organization.strip() if organization else None
 
 
 @_logger.trace("identify_media_with_openai")
@@ -157,8 +173,8 @@ def identify_media_with_openai(file_path: str, hints: dict[str, Any]) -> OpenAII
 
     Raises:
         UpstreamUnavailableError: If OpenAI cannot be reached, times out, or answers 408, 409, 429 or 5xx.
-        RuntimeError: If ``OPENAI_API_KEY`` is not set, or OpenAI rejects the request otherwise (authentication, bad
-            request, permissions).
+        RuntimeError: If the ``MEDIA_IDENTIFIER_OPENAI_API_KEY`` Infisical secret is not set, or OpenAI rejects the
+            request otherwise (authentication, bad request, permissions).
     """
     span = trace.get_current_span()
     if span.is_recording():
@@ -266,13 +282,14 @@ def _get_open_ai_client() -> OpenAI:
     if _open_ai_client is not None:
         return _open_ai_client
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY environment variable must be set to use OpenAI.")
+    settings = _read_openai_settings()
+    if settings is None:
+        raise RuntimeError("The MEDIA_IDENTIFIER_OPENAI_API_KEY Infisical secret must be set to use OpenAI.")
 
+    api_key, organization = settings
     _open_ai_client = OpenAI(
         api_key=api_key,
-        organization=os.environ.get("OPENAI_ORGANIZATION"),
+        organization=organization,
         timeout=OPENAI_TIMEOUT_SECONDS,
         max_retries=OPENAI_MAX_RETRIES,
     )

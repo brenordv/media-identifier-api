@@ -5,6 +5,7 @@ import requests
 
 from src.media_identifiers import tmdb_identifier
 from src.media_identifiers.errors import UpstreamUnavailableError
+from src.secret_store import SecretsError
 
 SERIES_URL = "https://api.themoviedb.org/3/tv/95480"
 
@@ -17,9 +18,8 @@ class FakeResponse(requests.Response):
 
 
 @pytest.fixture(autouse=True)
-def tmdb_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tmdb_identifier, "_tmdb_api_key", None)
-    monkeypatch.setenv("TMDB_API_KEY", "test-key")
+def tmdb_key(monkeypatch: pytest.MonkeyPatch, secret_values: dict[str, str]) -> None:
+    secret_values["MEDIA_IDENTIFIER_TMDB_API_KEY"] = "test-key"
     monkeypatch.setattr(tmdb_identifier.time, "sleep", lambda seconds: None)
 
 
@@ -42,6 +42,21 @@ def test_make_request_returns_the_decoded_body(monkeypatch: pytest.MonkeyPatch) 
     _queue_responses(monkeypatch, FakeResponse(200, '{"id": 95480}'))
 
     assert tmdb_identifier._make_request(SERIES_URL) == {"id": 95480}
+
+
+def test_make_request_sends_the_trimmed_api_key(monkeypatch: pytest.MonkeyPatch, secret_values: dict[str, str]) -> None:
+    secret_values["MEDIA_IDENTIFIER_TMDB_API_KEY"] = " test-key\n"
+    sent_headers: list[dict[str, str]] = []
+
+    def fake_get(url: str, **kwargs: Any) -> requests.Response:
+        sent_headers.append(kwargs["headers"])
+        return FakeResponse(200, '{"id": 95480}')
+
+    monkeypatch.setattr(tmdb_identifier.requests, "get", fake_get)
+
+    tmdb_identifier._make_request(SERIES_URL)
+
+    assert sent_headers[0]["Authorization"] == "Bearer test-key"
 
 
 def test_make_request_retries_once_after_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,11 +109,13 @@ def test_make_request_rejected_request_raises_runtime_error_naming_status_and_pa
     assert not isinstance(raised.value, UpstreamUnavailableError)
 
 
-def test_make_request_without_api_key_raises_value_error_before_calling_tmdb(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TMDB_API_KEY")
+def test_make_request_without_api_key_raises_before_calling_tmdb(
+    monkeypatch: pytest.MonkeyPatch, secret_values: dict[str, str]
+) -> None:
+    del secret_values["MEDIA_IDENTIFIER_TMDB_API_KEY"]
     calls = _queue_responses(monkeypatch)
 
-    with pytest.raises(ValueError, match="TMDB API key"):
+    with pytest.raises(SecretsError, match="MEDIA_IDENTIFIER_TMDB_API_KEY"):
         tmdb_identifier._make_request(SERIES_URL)
 
     assert calls == []

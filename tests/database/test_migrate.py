@@ -5,23 +5,38 @@ import pytest
 
 from src.database import migrate
 from src.database.migrations import Migration, MigrationError
+from src.database.pool import CONNECTION_STRING_SECRET
 
 SECRET_PASSWORD = "Sup3r-S3cret-Password"
 
 
-def test_main_without_database_settings_exits_1_naming_the_variable(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_without_database_settings_exits_1_naming_the_secret(capsys: pytest.CaptureFixture[str]) -> None:
     assert migrate.main() == 1
 
-    assert "POSTGRES_PORT" in capsys.readouterr().err
+    output = capsys.readouterr()
+    assert "Reading the settings from test secrets" in output.out
+    assert f"Secret '{CONNECTION_STRING_SECRET}' is not set" in output.err
+
+
+def test_main_invalid_connection_string_exits_1_without_revealing_the_password(
+    capsys: pytest.CaptureFixture[str], secret_values: dict[str, str]
+) -> None:
+    secret_values[CONNECTION_STRING_SECRET] = f"postgresql://media:{SECRET_PASSWORD}%zz@127.0.0.1:1/media"
+
+    assert migrate.main() == 1
+
+    output = capsys.readouterr()
+    assert f"Infisical secret '{CONNECTION_STRING_SECRET}' is not a valid" in output.err
+    assert "S3cret" not in output.out + output.err
 
 
 def test_main_connection_failure_exits_1_without_revealing_the_password(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    secret_values: dict[str, str],
 ) -> None:
-    monkeypatch.setenv("POSTGRES_HOST", "127.0.0.1")
-    monkeypatch.setenv("POSTGRES_PORT", "1")
-    monkeypatch.setenv("POSTGRES_USER", "media")
-    monkeypatch.setenv("POSTGRES_PASSWORD", SECRET_PASSWORD)
+    secret_values[CONNECTION_STRING_SECRET] = f"postgresql://media:{SECRET_PASSWORD}@127.0.0.1:1/media"
     monkeypatch.setenv("PGCONNECT_TIMEOUT", "2")
 
     with caplog.at_level(logging.DEBUG):

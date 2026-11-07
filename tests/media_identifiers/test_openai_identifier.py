@@ -244,16 +244,31 @@ def test_identify_token_logging_failure_still_returns_the_answer(
 def test_identify_without_api_key_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(openai_identifier, "_open_ai_client", None)
 
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+    with pytest.raises(RuntimeError, match="MEDIA_IDENTIFIER_OPENAI_API_KEY"):
         identify_media_with_openai(FILE_PATH, HINTS)
 
 
-def test_is_openai_configured_follows_the_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_openai_configured_without_api_key_is_false() -> None:
     assert not openai_identifier.is_openai_configured()
 
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+def test_is_openai_configured_with_api_key_is_true(secret_values: dict[str, str]) -> None:
+    secret_values["MEDIA_IDENTIFIER_OPENAI_API_KEY"] = "sk-test"
 
     assert openai_identifier.is_openai_configured()
+
+
+def test_client_uses_the_trimmed_api_key_and_organization_from_infisical(
+    monkeypatch: pytest.MonkeyPatch, secret_values: dict[str, str]
+) -> None:
+    secret_values.update(
+        {"MEDIA_IDENTIFIER_OPENAI_API_KEY": " sk-test\n", "MEDIA_IDENTIFIER_OPENAI_ORGANIZATION": "org-media\n"}
+    )
+    monkeypatch.setattr(openai_identifier, "_open_ai_client", None)
+
+    client = openai_identifier._get_open_ai_client()
+
+    assert (client.api_key, client.organization) == ("sk-test", "org-media")
 
 
 def test_extract_usage_without_usage_reports_zero_tokens() -> None:

@@ -27,10 +27,12 @@ from src.media_identifiers.media_type_helpers import is_tv, normalize_media_type
 from src.media_identifiers.nimble_classifier import get_nimble_url
 from src.media_identifiers.openai_identifier import is_openai_configured
 from src.media_identifiers.pipeline import IdentificationOutcome
+from src.media_identifiers.tmdb_identifier import get_tmdb_api_key
 from src.models.media_info import MediaData
 from src.repositories.media_info_cache import MediaInfoCache
 from src.repositories.repository_factory import get_cache_repository, get_request_logger
 from src.repositories.request_logger import RequestLogger
+from src.secret_store import get_secret_store
 from src.utils import flush_all_otel_loggers, get_otel_log_handler, set_request_id
 
 MAX_INPUT_LENGTH = 1024
@@ -49,19 +51,29 @@ _PUBLIC_503_MESSAGE = re.compile(
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Check the settings, migrate the database and open the connection pool; close the pool on shutdown.
+    """Read the settings, migrate the database and open the connection pool; close the pool on shutdown.
+
+    Every Infisical setting is read here, so requests are answered from the cached values.
 
     Raises:
-        ValueError: If ``NIMBLE_URL`` is set to an invalid value, or a database setting is missing or invalid.
+        SecretsError: If the Infisical bootstrap is incomplete, Infisical cannot be read, or the database connection
+            string or the TMDB key is not set.
+        ValueError: If ``MEDIA_IDENTIFIER_NIMBLE_URL`` or the database connection string is invalid.
         MigrationError: If a migration cannot be planned or applied.
         psycopg.Error: If connecting to the database fails.
     """
-    if get_nimble_url() is None:
-        logger.info("NIMBLE_URL is not set; the Nimble triage step is off.")
-    if not is_openai_configured():
-        logger.info("OPENAI_API_KEY is not set; the OpenAI fallback is off.")
+    try:
+        logger.info(f"Reading the settings from {get_secret_store().source}")
+        if get_nimble_url() is None:
+            logger.info("MEDIA_IDENTIFIER_NIMBLE_URL is not set in Infisical; the Nimble triage step is off.")
+        if not is_openai_configured():
+            logger.info("MEDIA_IDENTIFIER_OPENAI_API_KEY is not set in Infisical; the OpenAI fallback is off.")
+        get_tmdb_api_key()
+        pool_config = build_pool_config()
+    except Exception:
+        logger.exception("Reading the settings failed; the API will not start")
+        raise
 
-    pool_config = build_pool_config()
     try:
         apply_migrations(pool_config.conn_info, logger)
     except Exception:

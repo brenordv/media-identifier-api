@@ -10,8 +10,17 @@ All notable changes to this project are documented in this file. The format foll
 - Python 3.14 or newer is required, the version the Docker image runs.
 - Dependencies are managed with [uv](https://docs.astral.sh/uv/): `pyproject.toml` and `uv.lock` replace
   `requirements.txt`. Install with `uv sync` and start with `uv run python main.py`.
-- The Docker image no longer contains `.env`. Pass the settings when the container starts (`run-image.sh` uses
-  `--env-file .env`; see `.env.example`).
+- Settings come from [Infisical](https://infisical.com/). The environment (or `.env`) holds only the Infisical
+  bootstrap (`INFISICAL_HOST`, `INFISICAL_MEDIA_IDENTIFIER_CLIENT_ID`, `INFISICAL_MEDIA_IDENTIFIER_CLIENT_SECRET`,
+  `INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID`, and `INFISICAL_ENV`, which defaults to `dev`), `OPENAI_MODEL` and
+  `OTEL_EXPORTER_OTLP_ENDPOINT`. The other settings are Infisical secrets, read once at startup by the API and by
+  `src.database.migrate`: `MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING` (one connection string replaces the
+  `POSTGRES_*` variables), `MEDIA_IDENTIFIER_TMDB_API_KEY`, `MEDIA_IDENTIFIER_OPENAI_API_KEY`,
+  `MEDIA_IDENTIFIER_OPENAI_ORGANIZATION` and `MEDIA_IDENTIFIER_NIMBLE_URL`.
+- The API no longer starts without `MEDIA_IDENTIFIER_TMDB_API_KEY` (it used to start and fail every identification
+  with a 500).
+- The Docker image no longer contains `.env`. Pass the Infisical bootstrap and `OTEL_EXPORTER_OTLP_ENDPOINT` when the
+  container starts (`run-image.sh` uses `--env-file .env`; see `.env.example`).
 - The image runs `uvicorn --workers $WORKERS` instead of gunicorn with the deprecated `uvicorn.workers` worker.
 - On TV results, `tmdb_id` is the TMDB id of the episode; the series id is in `tmdb_series_id`. Movies are unchanged.
 - The database schema changes on first start (see Migrations below). A 1.x deployment that shares the database
@@ -41,14 +50,15 @@ All notable changes to this project are documented in this file. The format foll
   - `0004_identification_outcome_and_used_nimble`: `cached_media.used_nimble`, and `request_history.outcome`
     (`identified`, `not_media`, `unidentified`) and `request_history.decided_by` (`guessit`, `nimble`, `openai`,
     `request`).
-- Nimble triage (optional, `NIMBLE_URL`): the Nimble classifier decides whether a file is a movie, a TV release or
-  neither. A confident "neither" ends the request with `204` before any TMDB or OpenAI call; a confident movie or TV
+- Nimble triage (optional, `MEDIA_IDENTIFIER_NIMBLE_URL`): the Nimble classifier decides whether a file is a movie,
+  a TV release or neither. A confident "neither" ends the request with `204` before any TMDB or OpenAI call; a confident movie or TV
   verdict sets the media type.
 - Files nobody could identify are recorded with `outcome = 'unidentified'` for review; `/api/statistics` returns
   `outcome` and `decided_by`.
-- `.env.example` with every setting.
-- Hermetic unit test suite (no database, TMDB, OpenAI or telemetry collector needed) and an opt-in integration
-  suite: `MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration`.
+- `.env.example` with the Infisical bootstrap and the settings that stay in the environment.
+- The [Infisical SDK](https://pypi.org/project/infisicalsdk/) 1.0.18, which reads the settings.
+- Hermetic unit test suite (no Infisical, database, TMDB, OpenAI or telemetry collector needed) and an opt-in
+  integration suite: `MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration`.
 - ruff, ruff format and mypy configuration.
 
 ### Changed
@@ -102,6 +112,9 @@ All notable changes to this project are documented in this file. The format foll
 ### Security
 
 - `.dockerignore` is an allowlist, so `.env` and local settings files never reach the image.
+- The database password and the TMDB and OpenAI keys live in Infisical instead of `.env`, read with a machine
+  identity whose credentials are the only secret left in the environment. The database password, the API keys and
+  the machine identity's credentials never appear in logs or error messages.
 - Error responses and `/api/statistics` no longer expose exception text (database, TMDB or OpenAI details).
   Statistics show the generic message for server errors recorded by 1.x as well; those rows stay unchanged in the
   database.

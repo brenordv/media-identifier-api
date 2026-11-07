@@ -20,8 +20,8 @@ The chart below shows the 1.x flow; the list describes the current one.
 Identifying a file name goes like this:
 - guessit reads the title, year, season and episode from the name.
 - If that media is cached, the cached record is returned.
-- The Nimble classifier (optional, see `NIMBLE_URL`) decides whether the file is a movie, a TV release or neither.
-  A confident "neither" (games, ROMs, images, documents) ends the request with 204. A confident movie or TV verdict
+- The Nimble classifier (optional, see `MEDIA_IDENTIFIER_NIMBLE_URL`) decides whether the file is a movie, a TV
+  release or neither. A confident "neither" (games, ROMs, images, documents) ends the request with 204. A confident movie or TV verdict
   sets the media type, even against guessit.
 - When the media type is still uncertain, the name has no title, or a TV file has no season, OpenAI is asked once,
   with one structured call, what the name refers to.
@@ -63,32 +63,64 @@ The application is built with FastAPI and exposes the GuessIt library's function
 - `/api/statistics` - Returns statistics about requests made to the API
 
 ## Installation and Usage
-### Environment variables
-To use this, you must set a handful of environment variables. Copy `.env.example` to `.env` and fill it in:
+### Settings
+The settings live in [Infisical](https://infisical.com/). The environment only holds what the API needs to reach
+Infisical, plus two settings that are not secret. Copy `.env.example` to `.env` and fill it in:
 ```dotenv
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=change-me
-POSTGRES_DB=extended_media_info
-TMDB_API_KEY=your-tmdb-api-read-access-token
-OPENAI_API_KEY=your-openai-api-key
+INFISICAL_HOST=https://infisical.example.com
+INFISICAL_ENV=dev
+INFISICAL_MEDIA_IDENTIFIER_CLIENT_ID=your-machine-identity-client-id
+INFISICAL_MEDIA_IDENTIFIER_CLIENT_SECRET=your-machine-identity-client-secret
+INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID=your-infisical-project-id
 OPENAI_MODEL=gpt-4o-mini
-OPENAI_ORGANIZATION=your-openai-organization-id
-NIMBLE_URL=http://your-nimble-host:11434
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-- `TMDB_API_KEY` is TMDB's "API Read Access Token" (it is sent as a bearer token).
-- `OPENAI_API_KEY` is optional: without it the OpenAI fallback is off. The API has no authentication or rate limit,
-  so set a spend limit on the key's OpenAI project.
+- `INFISICAL_HOST` is the base URL of the Infisical server. A host without a scheme gets `https://`. Write `http://`
+  only for a server without TLS: the client secret and every secret value then cross the network in clear text.
+- `INFISICAL_ENV` is the Infisical environment to read: `prod` in the deployed container, `dev` everywhere else.
+  Without it, or with it blank, the API reads `dev`.
+- `INFISICAL_MEDIA_IDENTIFIER_CLIENT_ID` and `INFISICAL_MEDIA_IDENTIFIER_CLIENT_SECRET` are the
+  [Universal Auth](https://infisical.com/docs/documentation/platform/identities/universal-auth) credentials of a
+  machine identity, and `INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID` is the project holding the secrets. Give `dev` and
+  `prod` each their own machine identity, with a project role that can read only that environment and `shared` (see
+  below), so a development `.env` never holds a credential that can read production. A production container that
+  leaves out `INFISICAL_ENV` then stops at startup with a permission error instead of reading `dev`.
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`; the model must support Structured Outputs.
-- `NIMBLE_URL` is optional: the base URL of the Ollama server running the Nimble classifier. Without it the Nimble
-  step is off. An invalid value (not http or https, no host, or credentials in it) stops the API at startup.
-- `POSTGRES_DB` defaults to `extended_media_info`.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is required: logs and traces are exported to that OTLP/HTTP collector.
 - Keep comments on their own lines and leave values unquoted: Docker's `--env-file` treats a `#` after a value,
   and any quotes, as part of the value.
+
+The secrets sit at the root (`/`) of three Infisical environments. `shared` holds the API keys, which are the same
+everywhere. `prod` and `dev` hold the addresses: in `prod` they name containers on the Docker network the API runs
+in, and in `dev` they use host names a development machine can reach.
+
+| Secret                                        | Environment   | Required | What it holds                                                                          |
+|-----------------------------------------------|---------------|----------|----------------------------------------------------------------------------------------|
+| `MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING` | `prod`, `dev` | yes      | The database connection string, including the database name (see below).              |
+| `MEDIA_IDENTIFIER_TMDB_API_KEY`               | `shared`      | yes      | TMDB's "API Read Access Token" (sent as a bearer token).                               |
+| `MEDIA_IDENTIFIER_OPENAI_API_KEY`             | `shared`      | no       | Without it the OpenAI fallback is off.                                                 |
+| `MEDIA_IDENTIFIER_OPENAI_ORGANIZATION`        | `shared`      | no       | The OpenAI organization id.                                                            |
+| `MEDIA_IDENTIFIER_NIMBLE_URL`                 | `prod`, `dev` | no       | Base URL of the Ollama server running the Nimble classifier; without it Nimble is off. |
+
+- The API reads only the environment in `INFISICAL_ENV`, so `prod` and `dev` each
+  [import](https://infisical.com/docs/documentation/platform/secret-reference) `shared`: in the environment, choose
+  Add New, then Import Secrets, and pick `shared` at `/`. An imported secret reads as if it were defined in the
+  importing environment. Define each name in one environment only, since Infisical does not document which value
+  wins when a name is both defined and imported.
+
+- The connection string is a URI, `postgresql://user:password@host:5432/extended_media_info`, or `key=value` pairs,
+  `host=host port=5432 user=user password='password' dbname=extended_media_info`. In a URI, percent-encode every
+  character of the user name and password that is not a letter or digit, for example with
+  `urllib.parse.quote(password, safe="")` (not `quote_plus`: it writes a space as `+`, which libpq reads as a literal
+  `+`). In `key=value` form, put the value in single quotes and write a `'` or `\` inside it as `\'` or `\\`. A string
+  without a database name, or one an unencoded `@`, `/` or `%` breaks, stops the API at startup with an error that
+  does not repeat the string. Other unencoded characters can change the password libpq reads, so the login fails.
+- The API has no authentication or rate limit, so set a spend limit on the OpenAI key's project.
+- An invalid `MEDIA_IDENTIFIER_NIMBLE_URL` (not http or https, no host, or credentials in it) stops the API at
+  startup.
+- The API reads every setting when it starts and stops with an error naming the first required one that is missing.
+  A secret changed in Infisical takes effect on the next start.
 
 ### Local Installation
 
@@ -96,6 +128,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 - Python 3.14 or higher, the version the Docker image runs (`uv sync` installs it when it is missing)
 - [uv](https://docs.astral.sh/uv/)
 - A PostgreSQL database
+- An Infisical project with a Universal Auth machine identity (see Settings)
 
 ```bash
 # Clone the repository
@@ -110,6 +143,65 @@ uv run python main.py
 ```
 
 The API will be available at http://localhost:8000
+
+### Database user
+
+Give the API a PostgreSQL role of its own instead of `postgres` or a role other applications share. The role below
+can log in and owns the API's database objects, and has no other powers: it is not a superuser, cannot create
+databases or roles, and cannot bypass row-level security. It has to own the tables because the API applies
+migrations at startup, and `ALTER TABLE` is reserved for the owner.
+
+Replace `change-me` with a generated password. `CREATE ROLE ... PASSWORD` sends the password in clear text and can
+leave it in the server log or your client's history; in psql, create the role without the `PASSWORD` clause and run
+`\password media_identifier` instead, which sends it already hashed. `\connect` is a psql command too: in another
+client, run the statements after it in a session on `extended_media_info`.
+
+For a new database, run as a superuser:
+
+```sql
+CREATE ROLE media_identifier WITH LOGIN PASSWORD 'change-me'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+-- The database belongs to the API, and no other role may connect to it.
+CREATE DATABASE extended_media_info OWNER media_identifier;
+REVOKE ALL ON DATABASE extended_media_info FROM PUBLIC;
+
+\connect extended_media_info
+
+-- Only the API may create objects in the public schema. PostgreSQL 15 and later already give the database owner
+-- the public schema and keep other roles from creating objects in it; these two lines do the same on older versions.
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE, CREATE ON SCHEMA public TO media_identifier;
+```
+
+The first start then creates the `uuid-ossp` extension (a trusted extension, so the database owner may install it)
+and the tables.
+
+For a database that already holds the tables, created by another role, run as a superuser:
+
+```sql
+CREATE ROLE media_identifier WITH LOGIN PASSWORD 'change-me'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT CONNECT ON DATABASE extended_media_info TO media_identifier;
+
+\connect extended_media_info
+
+-- Every start runs CREATE TABLE IF NOT EXISTS schema_migrations, which needs CREATE on the schema. Indexes change
+-- owner with their table.
+GRANT USAGE, CREATE ON SCHEMA public TO media_identifier;
+ALTER TABLE IF EXISTS cached_media OWNER TO media_identifier;
+ALTER TABLE IF EXISTS request_history OWNER TO media_identifier;
+ALTER TABLE IF EXISTS openai_history OWNER TO media_identifier;
+ALTER TABLE IF EXISTS schema_migrations OWNER TO media_identifier;
+```
+
+A 1.x deployment that still uses the database keeps working if it connects as a superuser such as `postgres`. One
+that connects as another role stops starting once the tables change owner, because 1.x creates its tables and
+indexes at startup and only the owner may create an index; move ownership after 2.0 replaces it, and until then
+point 2.0's connection string at the role that owns the tables.
+
+Then point `MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING` at the role, for example
+`postgresql://media_identifier:<percent-encoded password>@db-host:5432/extended_media_info`.
 
 ### Database schema and migrations
 
@@ -134,9 +226,9 @@ uv run mypy
 uv run pytest --cov
 ```
 
-The unit tests need no database, TMDB, OpenAI or telemetry collector: they ignore `.env` and run with OpenTelemetry
-disabled. The integration suite calls the live services configured in `.env` and writes to that database, so it only
-runs on request:
+The unit tests need no Infisical, database, TMDB, OpenAI or telemetry collector: they ignore `.env`, serve every
+secret from memory and run with OpenTelemetry disabled. The integration suite reads the live settings from Infisical
+(with the bootstrap from `.env`), calls those services and writes to that database, so it only runs on request:
 
 ```bash
 MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration
@@ -163,8 +255,8 @@ docker build -t media-identifier-api:latest .
 docker run -d --name media-identifier-api --env-file .env -p 10147:10147 --restart unless-stopped media-identifier-api:latest
 ```
 
-The image contains no configuration (`.dockerignore` keeps `.env` out of the build), so the settings must be passed
-when the container starts.
+The image contains no configuration (`.dockerignore` keeps `.env` out of the build), so the Infisical bootstrap and
+`OTEL_EXPORTER_OTLP_ENDPOINT` must be passed when the container starts, with `INFISICAL_ENV=prod`.
 
 The API will be available at http://localhost:10147
 
@@ -273,6 +365,7 @@ This project relies on:
 - [Uvicorn](https://www.uvicorn.org/) - ASGI server for running the application
 - [Requests](https://requests.readthedocs.io/) - HTTP client for the TMDB API
 - [raccoontools-db](https://pypi.org/project/raccoontools-db/) - PostgreSQL connection pool on top of [psycopg 3](https://www.psycopg.org/psycopg3/)
+- [infisicalsdk](https://pypi.org/project/infisicalsdk/) - Official Infisical SDK, which reads the settings
 - [python-dotenv](https://pypi.org/project/python-dotenv/) - Library to handle `.env` files
 - [simple-log-factory-ext-otel](https://pypi.org/project/simple-log-factory-ext-otel/) - OpenTelemetry logging and tracing on top of [simple-log-factory](https://pypi.org/project/simple-log-factory/) (Shameless plug: I made these. 😁)
 - [openai](https://pypi.org/project/openai/) - Official OpenAI SDK.

@@ -1,54 +1,60 @@
-"""PostgreSQL connection settings read from the environment."""
+"""PostgreSQL connection settings read from Infisical."""
 
-import os
-
-from psycopg.conninfo import make_conninfo
+import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from raccoontools_db import PoolConfig
 
-DEFAULT_DATABASE_NAME = "extended_media_info"
+from src.secret_store import get_secret
+
+CONNECTION_STRING_SECRET = "MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING"
 POOL_MIN_SIZE = 1
 POOL_MAX_SIZE = 10
 
 
-def _require_env(name: str) -> str:
-    value = os.environ.get(name)
-    if value is None or value.strip() == "":
-        raise ValueError(f"Environment variable '{name}' must be set to connect to the database.")
-    return value
-
-
 def build_conninfo() -> str:
-    """Build a libpq connection string from the ``POSTGRES_*`` environment variables.
+    """Return the libpq connection string held in the ``MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING`` Infisical secret.
 
-    ``POSTGRES_HOST``, ``POSTGRES_PORT``, ``POSTGRES_USER`` and ``POSTGRES_PASSWORD`` are required;
-    ``POSTGRES_DB`` defaults to ``extended_media_info``.
+    The string is a URI (``postgresql://user:password@host:5432/dbname``) or ``key=value`` pairs, and must name the
+    database.
 
     Returns:
-        The connection string.
+        The connection string, without surrounding whitespace.
 
     Raises:
-        ValueError: If a required variable is missing or ``POSTGRES_PORT`` is not a number.
+        SecretsError: If the secret is not set, or Infisical cannot be read.
+        ValueError: If the secret is not a valid connection string with a database name.
     """
-    port = _require_env("POSTGRES_PORT")
-    if not port.strip().isdigit():
-        raise ValueError("Environment variable 'POSTGRES_PORT' must be a number.")
+    conninfo = get_secret(CONNECTION_STRING_SECRET).strip()
+    try:
+        params = conninfo_to_dict(conninfo)
+    except psycopg.ProgrammingError:
+        params = None
 
-    return make_conninfo(
-        host=_require_env("POSTGRES_HOST"),
-        port=port.strip(),
-        user=_require_env("POSTGRES_USER"),
-        password=_require_env("POSTGRES_PASSWORD"),
-        dbname=os.environ.get("POSTGRES_DB") or DEFAULT_DATABASE_NAME,
-    )
+    # libpq's parse errors quote the malformed part of the string, and a URI password holding an unencoded @ or /
+    # still parses but spills into other parameters (host, port, database name, query options), which connect errors
+    # quote; either can be the password. A spilled password always leaves the @ that should have ended it outside the
+    # user name and password. The error is raised outside the except block so none of libpq's text travels with it.
+    if (
+        params is None
+        or not params.get("dbname")
+        or any("@" in str(value) for key, value in params.items() if key not in ("user", "password"))
+    ):
+        raise ValueError(
+            f"Infisical secret '{CONNECTION_STRING_SECRET}' is not a valid PostgreSQL connection string with a "
+            "database name; percent-encode special characters in a URI user name and password, or use quoted "
+            "key=value pairs."
+        )
+    return conninfo
 
 
 def build_pool_config() -> PoolConfig:
-    """Build the connection pool configuration from the environment.
+    """Build the connection pool configuration from the Infisical connection string.
 
     Returns:
         The pool configuration.
 
     Raises:
-        ValueError: If the database settings are incomplete (see :func:`build_conninfo`).
+        SecretsError: If the secret is not set, or Infisical cannot be read.
+        ValueError: If the secret is not a valid connection string with a database name.
     """
     return PoolConfig(conn_info=build_conninfo(), min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE)
