@@ -63,7 +63,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ### Local Installation
 
 #### Prerequisites
-- Python 3.12 or higher (`.python-version` selects 3.14 for development, the version the Docker image runs)
+- Python 3.14 or higher, the version the Docker image runs (`uv sync` installs it when it is missing)
 - [uv](https://docs.astral.sh/uv/)
 - A PostgreSQL database
 

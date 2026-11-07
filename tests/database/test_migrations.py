@@ -35,7 +35,7 @@ class FakeResult:
 
 
 class FakeCursor:
-    def __init__(self, connection: "FakeMigrationConnection") -> None:
+    def __init__(self, connection: FakeMigrationConnection) -> None:
         self._connection = connection
         self.statusmessage: str | None = None
 

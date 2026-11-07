@@ -7,7 +7,7 @@ All notable changes to this project are documented in this file. The format foll
 
 ### Breaking changes
 
-- Python 3.12 or newer is required (the Docker image runs 3.14).
+- Python 3.14 or newer is required, the version the Docker image runs.
 - Dependencies are managed with [uv](https://docs.astral.sh/uv/): `pyproject.toml` and `uv.lock` replace
   `requirements.txt`. Install with `uv sync` and start with `uv run python main.py`.
 - The Docker image no longer contains `.env`. Pass the settings when the container starts (`run-image.sh` uses

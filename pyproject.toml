@@ -3,7 +3,7 @@ name = "media-identifier-api"
 version = "2.0.0"
 description = "REST API that identifies movies and TV episodes from file names using guessit, TMDB and OpenAI."
 readme = "readme.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi==0.162.0",
     "guessit==4.4.0",
@@ -30,7 +30,7 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP"]
@@ -42,7 +42,7 @@ select = ["E", "F", "W", "I", "N", "UP"]
 "src/media_identifiers/ai_functions/*.py" = ["E501"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 files = ["src", "main.py", "tests"]
 disallow_untyped_defs = true
 warn_unused_ignores = true
