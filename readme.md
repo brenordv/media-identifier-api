@@ -78,22 +78,24 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
 - `INFISICAL_HOST` is the base URL of the Infisical server. A host without a scheme gets `https://`. Write `http://`
   only for a server without TLS: the client secret and every secret value then cross the network in clear text.
-- `INFISICAL_ENV` is the Infisical environment to read: `prod` in the deployed container, `dev` everywhere else.
-  Without it, or with it blank, the API reads `dev`.
+- `INFISICAL_ENV` is the Infisical environment the connection string and the Nimble URL are read from: `prod` in the
+  deployed container, `dev` everywhere else. Without it, or with it blank, the API reads `dev`.
 - `INFISICAL_MEDIA_IDENTIFIER_CLIENT_ID` and `INFISICAL_MEDIA_IDENTIFIER_CLIENT_SECRET` are the
   [Universal Auth](https://infisical.com/docs/documentation/platform/identities/universal-auth) credentials of a
   machine identity, and `INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID` is the project holding the secrets. Give `dev` and
-  `prod` each their own machine identity, with a project role that can read only that environment and `shared` (see
-  below), so a development `.env` never holds a credential that can read production. A production container that
-  leaves out `INFISICAL_ENV` then stops at startup with a permission error instead of reading `dev`.
+  `prod` each their own machine identity, with a project role that can only describe and read secrets at `/` in
+  that environment and in `shared` (see below). A development `.env` then holds no credential that can read
+  production's database or Nimble address, though it can read the OpenAI and TMDB settings in `shared`, and a
+  production container that leaves out `INFISICAL_ENV` stops at startup with a permission error instead of reading
+  `dev`.
 - `OPENAI_MODEL` defaults to `gpt-4o-mini`; the model must support Structured Outputs.
 - `OTEL_EXPORTER_OTLP_ENDPOINT` is required: logs and traces are exported to that OTLP/HTTP collector.
 - Keep comments on their own lines and leave values unquoted: Docker's `--env-file` treats a `#` after a value,
   and any quotes, as part of the value.
 
-The secrets sit at the root (`/`) of three Infisical environments. `shared` holds the API keys, which are the same
-everywhere. `prod` and `dev` hold the addresses: in `prod` they name containers on the Docker network the API runs
-in, and in `dev` they use host names a development machine can reach.
+The secrets sit at the root (`/`) of three Infisical environments. `shared` holds the OpenAI settings and the TMDB
+key, which are the same everywhere. `prod` and `dev` hold the addresses: in `prod` they name containers on the
+Docker network the API runs in, and in `dev` they use host names a development machine can reach.
 
 | Secret                                        | Environment   | Required | What it holds                                                                          |
 |-----------------------------------------------|---------------|----------|----------------------------------------------------------------------------------------|
@@ -103,12 +105,11 @@ in, and in `dev` they use host names a development machine can reach.
 | `MEDIA_IDENTIFIER_OPENAI_ORGANIZATION`        | `shared`      | no       | The OpenAI organization id.                                                            |
 | `MEDIA_IDENTIFIER_NIMBLE_URL`                 | `prod`, `dev` | no       | Base URL of the Ollama server running the Nimble classifier; without it Nimble is off. |
 
-- The API reads only the environment in `INFISICAL_ENV`, so `prod` and `dev` each
-  [import](https://infisical.com/docs/documentation/platform/secret-reference) `shared`: in the environment, choose
-  Add New, then Import Secrets, and pick `shared` at `/`. An imported secret reads as if it were defined in the
-  importing environment. Define each name in one environment only, since Infisical does not document which value
-  wins when a name is both defined and imported.
-
+- The API reads each secret from the environment the table gives it: the OpenAI settings and the TMDB key from
+  `shared`, the other two from the environment in `INFISICAL_ENV`. Reads ignore Infisical secret imports, so a
+  connection string or Nimble URL in `shared` is never used. A blank value counts as not set: a blank OpenAI key in
+  `shared` turns the OpenAI fallback off in every environment, and a blank TMDB key stops the API in every
+  environment.
 - The connection string is a URI, `postgresql://user:password@host:5432/extended_media_info`, or `key=value` pairs,
   `host=host port=5432 user=user password='password' dbname=extended_media_info`. In a URI, percent-encode every
   character of the user name and password that is not a letter or digit, for example with

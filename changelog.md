@@ -16,7 +16,9 @@ All notable changes to this project are documented in this file. The format foll
   `OTEL_EXPORTER_OTLP_ENDPOINT`. The other settings are Infisical secrets, read once at startup by the API and by
   `src.database.migrate`: `MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING` (one connection string replaces the
   `POSTGRES_*` variables), `MEDIA_IDENTIFIER_TMDB_API_KEY`, `MEDIA_IDENTIFIER_OPENAI_API_KEY`,
-  `MEDIA_IDENTIFIER_OPENAI_ORGANIZATION` and `MEDIA_IDENTIFIER_NIMBLE_URL`.
+  `MEDIA_IDENTIFIER_OPENAI_ORGANIZATION` and `MEDIA_IDENTIFIER_NIMBLE_URL`. The OpenAI settings and the TMDB key are
+  read from the `shared` Infisical environment, the connection string and the Nimble URL from `INFISICAL_ENV`;
+  Infisical secret imports are not followed.
 - The API no longer starts without `MEDIA_IDENTIFIER_TMDB_API_KEY` (it used to start and fail every identification
   with a 500).
 - The Docker image no longer contains `.env`. Pass the Infisical bootstrap and `OTEL_EXPORTER_OTLP_ENDPOINT` when the

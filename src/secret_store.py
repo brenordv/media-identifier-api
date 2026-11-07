@@ -20,6 +20,10 @@ REQUIRED_BOOTSTRAP_VARIABLES = (
     "INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID",
 )
 DEFAULT_ENV_SLUG = "dev"
+SHARED_ENV_SLUG = "shared"
+SHARED_SECRETS = frozenset(
+    {"MEDIA_IDENTIFIER_OPENAI_API_KEY", "MEDIA_IDENTIFIER_OPENAI_ORGANIZATION", "MEDIA_IDENTIFIER_TMDB_API_KEY"}
+)
 SECRET_PATH = "/"
 _NOT_FOUND = 404
 
@@ -40,7 +44,8 @@ class InfisicalBootstrap:
         client_id: Machine identity client id.
         client_secret: Machine identity client secret.
         project_id: Infisical project that holds the secrets.
-        env_slug: Infisical environment to read, such as ``dev`` or ``prod``.
+        env_slug: Infisical environment, such as ``dev`` or ``prod``, that holds every secret outside
+            ``SHARED_SECRETS``.
     """
 
     host: str
@@ -87,14 +92,19 @@ class InfisicalBootstrap:
 
     @property
     def source(self) -> str:
-        """Where the secrets are read from: host, project, environment and path, never a credential."""
+        """Where the secrets are read from: host, project, path and each secret's environment, never a credential."""
         return (
-            f"Infisical at {self.host}, project {self.project_id}, environment '{self.env_slug}', path '{SECRET_PATH}'"
+            f"Infisical at {self.host}, project {self.project_id}, path '{SECRET_PATH}': "
+            f"environment '{self.env_slug}', and '{SHARED_ENV_SLUG}' for {', '.join(sorted(SHARED_SECRETS))}"
         )
 
 
 class InfisicalFetcher:
-    """Reads secrets from one Infisical project environment. Logs in with Universal Auth on the first read."""
+    """Reads secrets from one Infisical project, each from one environment.
+
+    The names in ``SHARED_SECRETS`` are read from the ``shared`` environment and every other name from the bootstrap's
+    environment; Infisical secret imports are not followed. Logs in with Universal Auth on the first read.
+    """
 
     def __init__(self, bootstrap: InfisicalBootstrap) -> None:
         self._bootstrap = bootstrap
@@ -107,24 +117,28 @@ class InfisicalFetcher:
             name: The secret's name.
 
         Returns:
-            The secret's value, or None when the secret does not exist.
+            The secret's value, or None when the secret does not exist in the environment it is read from.
 
         Raises:
             SecretsError: If logging in or reading the secret fails.
         """
+        environment = SHARED_ENV_SLUG if name in SHARED_SECRETS else self._bootstrap.env_slug
         client = self._logged_in_client()
         try:
             secret = client.secrets.get_secret_by_name(
                 secret_name=name,
                 project_id=self._bootstrap.project_id,
-                environment_slug=self._bootstrap.env_slug,
+                environment_slug=environment,
                 secret_path=SECRET_PATH,
+                include_imports=False,
             )
         except (InfisicalError, requests.RequestException) as e:
             if isinstance(e, APIError) and e.status_code == _NOT_FOUND:
                 return None
             raise SecretsError(
-                f"Reading secret '{name}' from {self._bootstrap.source} failed ({_describe_failure(e)})."
+                f"Reading secret '{name}' from Infisical at {self._bootstrap.host}, project "
+                f"{self._bootstrap.project_id}, environment '{environment}', path '{SECRET_PATH}' failed "
+                f"({_describe_failure(e)})."
             ) from e
 
         return secret.secretValue
@@ -205,8 +219,8 @@ class SecretStore:
         value = self.get_optional(name)
         if value is None:
             raise SecretsError(
-                f"Secret '{name}' is not set in {self.source}; check INFISICAL_ENV and "
-                "INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID if it exists."
+                f"Secret '{name}' is not set in {self.source}. If it exists, check that it is in the environment it is "
+                "read from, and check INFISICAL_ENV and INFISICAL_MEDIA_IDENTIFIER_PROJECT_ID."
             )
         return value
 

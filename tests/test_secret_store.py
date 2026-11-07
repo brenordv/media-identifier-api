@@ -19,6 +19,7 @@ from src.secret_store import (
 CLIENT_ID = "machine-client-id"
 CLIENT_SECRET = "machine-client-secret-value"
 TMDB_TOKEN = "tmdb-token-value"
+NIMBLE_URL = "http://nimble:11434"
 REQUIRED_BOOTSTRAP_ENV = {
     "INFISICAL_HOST": "https://infisical.example",
     "INFISICAL_MEDIA_IDENTIFIER_CLIENT_ID": CLIENT_ID,
@@ -32,10 +33,11 @@ BOOTSTRAP = InfisicalBootstrap.from_env(BOOTSTRAP_ENV)
 class FakeInfisical:
     """Replaces ``InfisicalSDKClient``: records construction, logins and reads, and answers from a dict.
 
-    A name missing from ``values`` answers like Infisical does for a secret that does not exist (HTTP 404).
+    ``values`` is keyed by (environment, name); a pair it lacks answers like Infisical does for a secret that does not
+    exist (HTTP 404).
     """
 
-    def __init__(self, values: dict[str, str | Exception], login_error: Exception | None = None) -> None:
+    def __init__(self, values: dict[tuple[str, str], str | Exception], login_error: Exception | None = None) -> None:
         self.values = values
         self.login_error = login_error
         self.constructed: list[dict[str, Any]] = []
@@ -56,7 +58,8 @@ class FakeInfisical:
 
     def _get_secret_by_name(self, **kwargs: Any) -> SimpleNamespace:
         self.reads.append(kwargs)
-        outcome = self.values.get(kwargs["secret_name"], APIError("Secret not found", 404, {}))
+        key = (kwargs["environment_slug"], kwargs["secret_name"])
+        outcome = self.values.get(key, APIError("Secret not found", 404, {}))
         if isinstance(outcome, Exception):
             raise outcome
         return SimpleNamespace(secretValue=outcome)
@@ -146,10 +149,13 @@ def test_from_env_host_with_credentials_query_or_fragment_raises_without_echoing
     assert "hunter2" not in str(raised.value)
 
 
-def test_source_names_host_project_and_environment() -> None:
+def test_source_names_host_project_path_and_the_environment_of_each_secret() -> None:
     bootstrap = InfisicalBootstrap.from_env({**BOOTSTRAP_ENV, "INFISICAL_HOST": "infisical.lan:8443"})
 
-    expected = "Infisical at https://infisical.lan:8443, project project-42, environment 'prod', path '/'"
+    expected = (
+        "Infisical at https://infisical.lan:8443, project project-42, path '/': environment 'prod', and 'shared' for "
+        "MEDIA_IDENTIFIER_OPENAI_API_KEY, MEDIA_IDENTIFIER_OPENAI_ORGANIZATION, MEDIA_IDENTIFIER_TMDB_API_KEY"
+    )
     assert bootstrap.source == expected
 
 
@@ -230,28 +236,52 @@ def test_fetcher_does_not_contact_infisical_before_the_first_read(monkeypatch: p
     assert fake.constructed == []
 
 
-def test_fetch_logs_in_once_with_the_cache_off_and_reads_the_environment_root(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_fetch_logs_in_once_with_the_cache_off(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _use_infisical(
         monkeypatch,
         FakeInfisical(
-            {"MEDIA_IDENTIFIER_TMDB_API_KEY": TMDB_TOKEN, "MEDIA_IDENTIFIER_OPENAI_ORGANIZATION": "org-media"}
+            {
+                ("prod", "MEDIA_IDENTIFIER_NIMBLE_URL"): NIMBLE_URL,
+                ("shared", "MEDIA_IDENTIFIER_TMDB_API_KEY"): TMDB_TOKEN,
+            }
         ),
     )
     fetcher = InfisicalFetcher(BOOTSTRAP)
 
-    values = [fetcher.fetch("MEDIA_IDENTIFIER_TMDB_API_KEY"), fetcher.fetch("MEDIA_IDENTIFIER_OPENAI_ORGANIZATION")]
+    values = [fetcher.fetch("MEDIA_IDENTIFIER_NIMBLE_URL"), fetcher.fetch("MEDIA_IDENTIFIER_TMDB_API_KEY")]
 
-    assert values == [TMDB_TOKEN, "org-media"]
+    assert values == [NIMBLE_URL, TMDB_TOKEN]
     assert fake.constructed == [{"host": "https://infisical.example", "cache_ttl": None}]
     assert fake.logins == [{"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}]
-    assert fake.reads[0] == {
-        "secret_name": "MEDIA_IDENTIFIER_TMDB_API_KEY",
-        "project_id": "project-42",
-        "environment_slug": "prod",
-        "secret_path": "/",
-    }
+
+
+@pytest.mark.parametrize(
+    ("name", "environment"),
+    [
+        ("MEDIA_IDENTIFIER_OPENAI_API_KEY", "shared"),
+        ("MEDIA_IDENTIFIER_OPENAI_ORGANIZATION", "shared"),
+        ("MEDIA_IDENTIFIER_TMDB_API_KEY", "shared"),
+        ("MEDIA_IDENTIFIER_NIMBLE_URL", "prod"),
+        ("MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING", "prod"),
+    ],
+)
+def test_fetch_reads_each_secret_once_from_the_root_of_its_environment_without_imports(
+    monkeypatch: pytest.MonkeyPatch, name: str, environment: str
+) -> None:
+    fake = _use_infisical(monkeypatch, FakeInfisical({("shared", name): "shared-value", ("prod", name): "prod-value"}))
+
+    value = InfisicalFetcher(BOOTSTRAP).fetch(name)
+
+    assert value == f"{environment}-value"
+    assert fake.reads == [
+        {
+            "secret_name": name,
+            "project_id": "project-42",
+            "environment_slug": environment,
+            "secret_path": "/",
+            "include_imports": False,
+        }
+    ]
 
 
 def test_fetch_missing_secret_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -260,6 +290,19 @@ def test_fetch_missing_secret_returns_none(monkeypatch: pytest.MonkeyPatch) -> N
     assert InfisicalFetcher(BOOTSTRAP).fetch("MEDIA_IDENTIFIER_NIMBLE_URL") is None
 
 
+def test_fetch_environment_secret_defined_only_in_shared_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    _use_infisical(
+        monkeypatch,
+        FakeInfisical({("shared", "MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING"): "postgresql://db.example/media"}),
+    )
+
+    assert InfisicalFetcher(BOOTSTRAP).fetch("MEDIA_IDENTIFIER_POSTGRES_CONNECTION_STRING") is None
+
+
+@pytest.mark.parametrize(
+    ("name", "environment"),
+    [("MEDIA_IDENTIFIER_NIMBLE_URL", "prod"), ("MEDIA_IDENTIFIER_OPENAI_API_KEY", "shared")],
+)
 @pytest.mark.parametrize(
     ("error", "described"),
     [
@@ -267,17 +310,16 @@ def test_fetch_missing_secret_returns_none(monkeypatch: pytest.MonkeyPatch) -> N
         (requests.ConnectionError("connection refused"), "ConnectionError"),
     ],
 )
-def test_fetch_failure_raises_naming_the_secret_without_credentials(
-    monkeypatch: pytest.MonkeyPatch, error: Exception, described: str
+def test_fetch_failure_raises_naming_the_secret_and_its_environment_without_credentials(
+    monkeypatch: pytest.MonkeyPatch, name: str, environment: str, error: Exception, described: str
 ) -> None:
-    _use_infisical(monkeypatch, FakeInfisical({"MEDIA_IDENTIFIER_OPENAI_API_KEY": error}))
+    _use_infisical(monkeypatch, FakeInfisical({(environment, name): error}))
 
     with pytest.raises(SecretsError) as raised:
-        InfisicalFetcher(BOOTSTRAP).fetch("MEDIA_IDENTIFIER_OPENAI_API_KEY")
+        InfisicalFetcher(BOOTSTRAP).fetch(name)
 
-    assert f"Reading secret 'MEDIA_IDENTIFIER_OPENAI_API_KEY' from {BOOTSTRAP.source} failed ({described})" in str(
-        raised.value
-    )
+    location = f"Infisical at https://infisical.example, project project-42, environment '{environment}', path '/'"
+    assert f"Reading secret '{name}' from {location} failed ({described})" in str(raised.value)
     assert CLIENT_SECRET not in _rendered(raised.value)
 
 
@@ -291,7 +333,9 @@ def test_fetch_failure_raises_naming_the_secret_without_credentials(
 def test_login_failure_raises_naming_the_host_without_credentials(
     monkeypatch: pytest.MonkeyPatch, error: Exception, described: str
 ) -> None:
-    fake = _use_infisical(monkeypatch, FakeInfisical({"MEDIA_IDENTIFIER_TMDB_API_KEY": TMDB_TOKEN}, login_error=error))
+    fake = _use_infisical(
+        monkeypatch, FakeInfisical({("shared", "MEDIA_IDENTIFIER_TMDB_API_KEY"): TMDB_TOKEN}, login_error=error)
+    )
 
     with pytest.raises(SecretsError) as raised:
         InfisicalFetcher(BOOTSTRAP).fetch("MEDIA_IDENTIFIER_TMDB_API_KEY")
