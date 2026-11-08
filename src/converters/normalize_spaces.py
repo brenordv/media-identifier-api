@@ -1,3 +1,5 @@
+"""Collapses runs of whitespace."""
+
 import re
 
 
@@ -11,4 +13,4 @@ def normalize_spaces(text: str) -> str:
     Returns:
         str: The string with normalized spacing.
     """
-    return re.sub(r'\s+', ' ', text)
+    return re.sub(r"\s+", " ", text)

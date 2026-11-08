@@ -1,4 +1,7 @@
+"""Replaces characters other than ASCII letters and digits."""
+
 import re
+
 
 def replace_special_chars(text: str, replacement: str = " ", keep_spaces: bool = True) -> str:
     """
@@ -6,7 +9,7 @@ def replace_special_chars(text: str, replacement: str = " ", keep_spaces: bool =
 
     Args:
         text (str): The input string.
-        replacement (str): The character to replace specials with (default: '_').
+        replacement (str): The character to replace specials with (default: a space).
         keep_spaces (bool): If True, spaces will be preserved instead of replaced.
 
     Returns:

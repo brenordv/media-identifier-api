@@ -1,0 +1,70 @@
+[project]
+name = "media-identifier-api"
+version = "2.0.0"
+description = "REST API that identifies movies and TV episodes from file names using guessit, TMDB and OpenAI."
+readme = "readme.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi==0.162.0",
+    "guessit==4.4.0",
+    "infisicalsdk==1.0.18",
+    "openai==3.46.0",
+    "opentelemetry-api==1.45.2",
+    "psycopg[binary]==3.3.8",
+    "psycopg-pool==3.3.3",
+    "pydantic==2.14.3",
+    "python-dotenv==1.2.4",
+    "raccoontools-db==1.1.0",
+    "requests==2.34.2",
+    "simple-log-factory-ext-otel[fastapi,psycopg]==2.0.0",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2==2.16.0",
+    "mypy==2.4.1",
+    "pytest==9.2.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.4",
+    "types-requests==2.33.0.20261030",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# main.py loads .env before importing src modules, because several of them read the environment at import time.
+"main.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.14"
+files = ["src", "main.py", "tests"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+# Both packages are fully annotated but ship no py.typed marker.
+module = ["simple_log_factory_ext_otel.*", "raccoontools_db.*"]
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# Partly annotated and ships no py.typed marker; the client, secret and error types used here are annotated.
+module = ["infisical_sdk.*"]
+follow_untyped_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-ra", "-m", "not integration"]
+markers = [
+    "integration: calls live TMDB, OpenAI and Postgres; run with MEDIA_IDENTIFIER_RUN_INTEGRATION=1 uv run pytest -m integration",
+]
+
+[tool.coverage.run]
+source_pkgs = ["src", "main"]
+branch = true

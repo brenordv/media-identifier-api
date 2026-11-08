@@ -42,6 +42,7 @@
 .eggs/
 .env
 .env.*
+!.env.example
 .envrc
 .eslintcache
 .firebase/

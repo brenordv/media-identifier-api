@@ -5,6 +5,15 @@ IMAGE_NAME="media-identifier-api"
 TAG="latest"
 CONTAINER_NAME="media-identifier-api"
 PORT=10147
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/.env}"
+
+# The image carries no configuration; settings come from the env file at run time.
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "❌ Environment file not found: ${ENV_FILE}"
+    echo "Copy .env.example to .env and fill it in, or point ENV_FILE at another file."
+    exit 1
+fi
 
 # Check if container already exists
 if [ "$(docker ps -a -q -f name=${CONTAINER_NAME})" ]; then
@@ -22,6 +31,7 @@ echo "----------------------------------------------"
 # Run the container
 docker run -d \
     --name ${CONTAINER_NAME} \
+    --env-file "${ENV_FILE}" \
     -p ${PORT}:${PORT} \
     --restart unless-stopped \
     ${IMAGE_NAME}:${TAG}
