@@ -13,9 +13,9 @@ test it as you like.
 > TL;DR: Educational purposes, not condoning anything illegal. You do whatever you want at your own risk.
 
 ## Request flow
-The chart below shows the 1.x flow; the list describes the current one.
+The chart below shows the flow in plain language, following one example file; the list gives the details.
 
-![Data flow chart](data-flow.png)
+![Data flow chart](data-flow-diagram.png)
 
 Identifying a file name goes like this:
 - guessit reads the title, year, season and episode from the name.
@@ -226,6 +226,8 @@ uv run ruff format --check .
 uv run mypy
 uv run pytest --cov
 ```
+
+The `QA` GitHub workflow (`.github/workflows/qa.yml`) runs these four checks on every pull request to `master`.
 
 The unit tests need no Infisical, database, TMDB, OpenAI or telemetry collector: they ignore `.env`, serve every
 secret from memory and run with OpenTelemetry disabled. The integration suite reads the live settings from Infisical
